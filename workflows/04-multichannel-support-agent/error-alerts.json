@@ -1,0 +1,79 @@
+{
+  "name": "MCA · Error Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🔔 MCA · Error Alerts\nRuns automatically when Core or a channel workflow fails (each workflow's Settings → Error workflow = this one). Emails the error to the human agent inbox.\n⚙️ Setup: Gmail credential (ojisamuelnkemakolam) in **Email Error Alert**.",
+        "height": 180,
+        "width": 460,
+        "color": 3
+      },
+      "id": "5d23f162-c844-4605-9083-bd9891950b6f",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        -16
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "187139b8-0d28-465b-8416-ccbe43f3e902",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        32,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "=[MCA ERROR] {{ $json.workflow.name }} failed at {{ $json.execution.lastNodeExecuted }}",
+        "emailType": "text",
+        "message": "=A Multi-channel AI Agent workflow failed.\n\nWorkflow: {{ $json.workflow.name }}\nFailed node: {{ $json.execution.lastNodeExecuted }}\nError: {{ $json.execution.error.message }}\nMode: {{ $json.execution.mode }}\nTime: {{ $now.setZone('Africa/Lagos').toFormat('dd LLL yyyy, HH:mm') }} (Lagos)\n\nOpen the execution: {{ $json.execution.url }}\n\nWhat happens to the customer: the channel workflow sends a polite fallback reply, so nobody is left without an answer. Check the execution, fix the cause, and follow up with the customer if needed.",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "23c37b20-35ee-4ca9-ba4d-a9d4bb46cdfb",
+      "name": "Email Error Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        272,
+        256
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Error Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}

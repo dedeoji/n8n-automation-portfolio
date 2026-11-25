@@ -1,0 +1,524 @@
+{
+  "name": "Content Repurposing Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Repurpose a Masterclass",
+        "formDescription": "Paste your masterclass transcript, and we'll turn it into a week of posts in your voice.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Masterclass title",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Transcript",
+              "fieldType": "textarea",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "First post date",
+              "fieldType": "date",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Thanks! Your posts are being written in your voice. They'll appear in your content calendar as drafts in about a minute, ready for you to review and approve."
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "28b44981-0d9f-4fad-ade0-b1a1288393ce",
+      "name": "Repurpose Form"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b207d3e1-9398-47c1-9d30-84f608b7b6bb",
+              "name": "sheetId",
+              "value": "YOUR_GOOGLE_SHEET_ID",
+              "type": "string"
+            },
+            {
+              "id": "30cfa2d4-c048-4c96-8760-239421e802a0",
+              "name": "timezone",
+              "value": "Africa/Lagos",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        192,
+        0
+      ],
+      "id": "ed1487dd-dbcf-40c6-bb06-a88daa3ab742",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 2076211973,
+          "mode": "list",
+          "cachedResultName": "Coach Profile",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=2076211973"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        16,
+        192
+      ],
+      "id": "13c45f28-1eb5-4569-9daf-1bc03a69da16",
+      "name": "Read Coach Profile",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 13437671,
+          "mode": "list",
+          "cachedResultName": "Voice",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=13437671"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        240,
+        192
+      ],
+      "id": "97ba3a76-2c1e-4b3e-bc12-25e1728e8416",
+      "name": "Read Voice",
+      "executeOnce": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. What the coach submitted\nconst form = $('Repurpose Form').first().json;\nconst title = String(form['Masterclass title'] || '').trim();\nconst transcript = String(form['Transcript'] || '').trim();\nconst firstDate = String(form['First post date'] || '').trim();\n\n// 2. The coach's profile, as { 'Coach name': 'Ruth Adeyemi', ... }\nconst P = {};\nfor (const item of $('Read Coach Profile').all()) {\n  const k = String(item.json['Field'] || '').trim();\n  if (k) P[k] = String(item.json['Value'] ?? '').trim();\n}\n\n// 3. Her past posts (her voice)\nconst voice = $('Read Voice').all()\n  .map(i => String(i.json['Post'] || '').trim())\n  .filter(Boolean);\n\nconst n = Number(P['Posts per masterclass'] || 7);\n\n// 4. The instructions for the AI\nconst systemPrompt = `You are a ghostwriter for ${P['Coach name']}, who runs ${P['Business']}.\nShe helps: ${P['Who she helps']}.\nPaid offer: ${P['Paid offer']} (link: ${P['Offer link']}).\n\nYour job: turn her masterclass transcript into social posts that sound exactly like she wrote them herself.\n\nHOW SHE WRITES (study these real posts closely: rhythm, line length, words, emojis, how she opens and closes):\n${voice.map((p, i) => `--- Post ${i + 1} ---\\n${p}`).join('\\n\\n')}\n\nHer style notes: ${P['Style notes']}\nNever use these words: ${P['Words to avoid']}\n\nRULES\n- RULES\n- Write in first person, as her. Her voice matters more than any \"best practice\".\n- FORMAT LIKE HER: one short sentence per line, and a blank line between every line or two. Never write a block paragraph.\n- Open with a short hook line, the way her posts do (\"Friend, your CV is not the problem.\").\n- Every post includes ONE concrete story, number or example from the transcript (for example: 63 applications, 2 replies; the $2,400 offer from Ibadan; 5 targeted applications a week; the fintech onboarding guide). Never invent results, clients or figures.\n- Use her own words and phrases from the transcript wherever possible.\n- Emojis: only the ones she uses (🔑, and 😅 rarely). At most one per post.\n- End with a small task or question, or (on about half the posts) a soft call to action for the paid offer. No exclamation marks at the end.\n- Each post teaches ONE point. No two posts make the same point.\n- Write EXACTLY ${n + 2} posts. The \"posts\" list must contain exactly ${n + 2} items. If you run out of main points, use: a story from the masterclass, a common mistake she warns about, her homework, or a follow-up tip.\n- LinkedIn: 500 to 1,300 characters. If it has a call to action, include the offer link.\n- Facebook: 400 to 1,000 characters, a little warmer and chattier. If it has a call to action, include the offer link.\n- Instagram: up to 1,800 characters. Links don't work on Instagram, so say \"link in bio\" instead. End with 3 to 5 relevant hashtags.\n- No em dashes. Plain, simple English. No words like \"specificity\", \"leverage\" or \"unlock\".\nReply with JSON only, in exactly this shape:\n{\"posts\":[{\"angle\":\"the one point this post makes\",\"linkedin\":\"...\",\"facebook\":\"...\",\"instagram\":\"...\"}]}`;\n\nconst userPrompt = `Masterclass title: ${title}\n\nTranscript:\n${transcript}`;\n\nreturn [{ json: { systemPrompt, userPrompt, n, title, firstDate,\n  postingTime: P['Posting time'] || '09:00',\n  platforms: P['Platforms'] || 'linkedin, facebook, instagram' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        400
+      ],
+      "id": "81b78971-6a89-4157-8f46-fc0b9905c7cf",
+      "name": "Build Prompt"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "={{ $json.systemPrompt }}"
+            },
+            {
+              "content": "={{ $json.userPrompt }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        240,
+        400
+      ],
+      "id": "1952ab3d-61b8-47da-84d3-83784ed671c4",
+      "name": "Write Posts",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $('Build Prompt').first().json;\nconst tz = $('Config').first().json.timezone;\n\n// 1. Get the AI's answer (works whether it arrives as text or as data)\nconst j = $json;\nlet raw = j.output?.[0]?.content?.[0]?.text ?? j.message?.content ?? j.text ?? j;\nconst data = typeof raw === 'string' ? JSON.parse(raw) : raw;\nconst posts = (data.posts || []).slice(0, b.n);\nif (!posts.length) throw new Error('The AI returned no posts');\n\n// 2. One post per day, at the coach's posting time\nconst [hour, minute] = String(b.postingTime).split(':').map(Number);\nconst start = DateTime.fromISO(String(b.firstDate).slice(0, 10), { zone: tz })\n  .set({ hour, minute, second: 0 });\nconst stamp = DateTime.now().setZone(tz).toFormat('yyMMddHHmm');\n\n// 3. Shape each post into a Calendar row\nreturn posts.map((p, i) => ({\n  json: {\n    'ID': `R${stamp}-${i + 1}`,\n    'Scheduled Time': start.plus({ days: i }).toFormat('yyyy-MM-dd HH:mm'),\n    'Platforms': b.platforms,\n    'Caption': p.linkedin,\n    'LinkedIn Caption': p.linkedin,\n    'Facebook Caption': p.facebook,\n    'Instagram Caption': p.instagram,\n    'Approved': 'FALSE',\n    'Source': `${b.title} · ${p.angle}`,\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        16,
+        704
+      ],
+      "id": "21af4a0a-426c-4b06-8638-170a795cef14",
+      "name": "Prepare Rows"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 129134658,
+          "mode": "list",
+          "cachedResultName": "Calendar",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=129134658"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scheduled Time",
+              "displayName": "Scheduled Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Platforms",
+              "displayName": "Platforms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Caption",
+              "displayName": "Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Caption",
+              "displayName": "LinkedIn Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Facebook Caption",
+              "displayName": "Facebook Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Caption",
+              "displayName": "Instagram Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media URL",
+              "displayName": "Media URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media Type",
+              "displayName": "Media Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Approved",
+              "displayName": "Approved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Status",
+              "displayName": "LinkedIn Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Post",
+              "displayName": "LinkedIn Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Facebook Status",
+              "displayName": "Facebook Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Facebook Post",
+              "displayName": "Facebook Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Status",
+              "displayName": "Instagram Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Post",
+              "displayName": "Instagram Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Error",
+              "displayName": "Last Error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Source",
+              "displayName": "Source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        240,
+        704
+      ],
+      "id": "65595515-e266-46ed-8299-2b1c42356a68",
+      "name": "Add to Calendar",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Repurpose Form": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read Coach Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Coach Profile": {
+      "main": [
+        [
+          {
+            "node": "Read Voice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Voice": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "Write Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Posts": {
+      "main": [
+        [
+          {
+            "node": "Prepare Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Rows": {
+      "main": [
+        [
+          {
+            "node": "Add to Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

@@ -1,0 +1,383 @@
+{
+  "name": "MCA · Test 02 · Email (Gmail)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 📧 Test 02 — Email\nPolls Gmail every minute for **unread** mail.\n\n1. Open *Gmail Trigger* → connect your Gmail credential (OAuth).\n2. Optional: set *Search* to `to:you@example.com` and send test mails to that plus-address so only project mail is picked up.\n3. Keep **Simplify OFF** — the normalizer needs the full body.\n4. Click *Fetch Test Event* after sending yourself a test email.",
+        "height": 320,
+        "width": 480,
+        "color": 4
+      },
+      "id": "c2b6f2ce-09eb-4077-bf0f-a65b14da9a6a",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        32,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "   to:you@example.com -from:you@example.com",
+          "readStatus": "unread"
+        },
+        "options": {}
+      },
+      "id": "50cb3cc4-3bf2-4927-a768-145de4e85099",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        400
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise Nigerian numbers to WhatsApp-style international format (e.g. 2348031234567)\nfunction normPhone(p) {\n  if (!p) return null;\n  let d = String(p).replace(/\\D/g, '');\n  if (d.startsWith('0') && d.length === 11) d = '234' + d.slice(1);\n  if (d.length === 10 && /^[789]/.test(d)) d = '234' + d;\n  return d || null;\n}\nfunction normEmail(e) {\n  if (!e) return null;\n  const s = String(e).trim().toLowerCase();\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s) ? s : null;\n}\n// Our own unique ID for every message, whatever the channel: msg_<time>_<random>\nfunction newId() {\n  return 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);\n}\n\n// Email (Gmail Trigger, Simplify = OFF) -> Unified Message Schema (v2)\nfunction stripQuoted(t) {\n  // Cut the quoted thread that mail clients append below a reply\n  const cut = t.search(/\\n\\s*On .{5,200}wrote:|\\n-{2,}\\s*Original Message|\\nFrom: .+\\nSent: /i);\n  return (cut > 0 ? t.slice(0, cut) : t).trim();\n}\nreturn $input.all().map(item => {\n  const j = item.json;\n  const from = j.from?.value?.[0] ?? {};\n  const raw = String(j.text ?? j.snippet ?? '');\n  const text = stripQuoted(raw);\n  const email = normEmail(from.address);\n  // Look for a phone number in the body so later phases can link the email to WhatsApp\n  const phoneMatch = raw.match(/(\\+?234|0)[789][01]\\d{8}/);\n  const missing = [];\n  if (!text) missing.push('message');\n  if (!email) missing.push('email');\n  return { json: {\n    schema_version: 2,\n    message_id: newId(),\n    channel_message_id: j.messageId || j.id || null,\n    channel: 'email',\n    channel_user_id: email,\n    thread_id: j.threadId || null,\n    customer: { name: from.name || null, email, phone: phoneMatch ? normPhone(phoneMatch[0]) : null },\n    subject: j.subject || null,\n    message_text: text,\n    message_type: 'text',\n    received_at: j.date ? new Date(j.date).toISOString() : new Date().toISOString(),\n    is_valid: text.length > 0 && !!email,\n    missing_fields: missing,\n    meta: { gmail_id: j.id || null, to: j.to?.text || null }\n  }};\n});\n"
+      },
+      "id": "3fbb83de-fa59-4642-8521-1ee59aad1d1f",
+      "name": "Normalize → Unified Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        528,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "10692b43-c40a-4f92-b406-53035fc5af42",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "124b157d-7100-4b26-9dda-58d2134018e9",
+      "name": "Is Valid Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        768,
+        400
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "8e53d32e-184d-4dd1-9669-817bd3d6bf6d",
+      "name": "✅ Received (next phase: CRM + AI)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1648,
+        384
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "4472b6a3-94f3-4fdf-b457-3795448ac962",
+      "name": "⚠️ Skipped (empty / no sender)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "v7ikl3w4X0wEBwKm",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/v7ikl3w4X0wEBwKm",
+          "cachedResultName": " Multi-channel AI Agent — MCA · Core"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1424,
+        400
+      ],
+      "id": "6ecb4b9f-963a-4744-be25-da22ce7cb16c",
+      "name": "Send To Core",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "markAsRead",
+        "messageId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        304,
+        528
+      ],
+      "id": "5e978cc5-d712-4a23-88f9-943892788bc9",
+      "name": "Mark a message as read",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 🛡️ Phase 9 · Safety\n**Check Duplicate → Is Duplicate?** sits between *Is Valid Message?* (true) and *Send to Core*.\n**Fallback Email Reply** is connected to the **error output** of *Send to Core*.",
+        "height": 180,
+        "width": 520,
+        "color": 7
+      },
+      "id": "2fbf16e6-450a-4a68-b12b-75ec04a5d3c4",
+      "name": "Note Phase 9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1184,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 9 · Duplicate protection: the same channel message (same WhatsApp wamid / email Message-ID) is processed only once\nconst store = $getWorkflowStaticData('global');           // kept by n8n between production runs\nstore.seen = Array.isArray(store.seen) ? store.seen : [];\nreturn $input.all().map(item => {\n  const id = item.json.channel_message_id;\n  const is_duplicate = !!id && store.seen.includes(id);\n  if (id && !is_duplicate) {\n    store.seen.push(id);\n    if (store.seen.length > 1000) store.seen = store.seen.slice(-1000);   // remember the last 1,000\n  }\n  return { json: { ...item.json, is_duplicate } };\n});"
+      },
+      "id": "d5d39263-a9d1-4860-b566-b99037baddea",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "87570990-98b9-4dc3-baec-92131fbfd046",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "998916ca-a5b9-4e46-8063-9020e55b1d1f",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        368
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "606d7e82-0dc4-4cf9-a666-b7aadaeaced0",
+      "name": "Duplicate Ignored",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Normalize → Unified Schema').item.json.meta.gmail_id }}",
+        "emailType": "text",
+        "message": "=Dear {{ ($('Normalize → Unified Schema').item.json.customer.name || 'Customer').split(' ')[0] }},\n\nSorry, we're having a temporary technical problem. Your message has been received and a member of the Tillstone team will get back to you shortly.\n\nBest regards,\nTillstone Support",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "e760d23b-3d71-4d66-8d28-d7c4a0320f89",
+      "name": "Fallback Email Reply",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1664,
+        576
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize → Unified Schema",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Mark a message as read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize → Unified Schema": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Message?": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "⚠️ Skipped (empty / no sender)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send To Core": {
+      "main": [
+        [
+          {
+            "node": "✅ Received (next phase: CRM + AI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Email Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark a message as read": {
+      "main": [
+        []
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send To Core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "12ftgl2nh1KDCNfk",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

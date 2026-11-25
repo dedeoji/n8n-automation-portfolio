@@ -1,0 +1,408 @@
+{
+  "name": "MCA · Test 01- Website Chat",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🟢 Test 01 — Website Chat\nReceives messages from the Forgeline website chat widget (or the Channel Simulator).\n\n**Expected body:** `session_id`, `name`, `email`, `phone`, `message`, `page_url`\n\nOutputs the **Unified Message Schema v1** shared by every channel.\n\nTest URL → click *Listen for test event* first.\nProduction URL → activate the workflow.",
+        "height": 284,
+        "width": 460,
+        "color": 4
+      },
+      "id": "86e4c0c3-4197-4f96-a976-449b46a28d11",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tillstone-webchat",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "096c4552-559f-4491-bbb9-366389c7f927",
+      "name": "Website Chat Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        592
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise Nigerian numbers to WhatsApp-style international format (e.g. 2348031234567)\nfunction normPhone(p) {\n  if (!p) return null;\n  let d = String(p).replace(/\\D/g, '');\n  if (d.startsWith('0') && d.length === 11) d = '234' + d.slice(1);\n  if (d.length === 10 && /^[789]/.test(d)) d = '234' + d;\n  return d || null;\n}\nfunction normEmail(e) {\n  if (!e) return null;\n  const s = String(e).trim().toLowerCase();\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s) ? s : null;\n}\n// Our own unique ID for every message, whatever the channel: msg_<time>_<random>\nfunction newId() {\n  return 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);\n}\n\n// Website Chat -> Unified Message Schema (v2)\nreturn $input.all().map(item => {\n  const b = item.json.body ?? {};\n  const text = String(b.message ?? '').trim();\n  const email = normEmail(b.email);\n  const phone = normPhone(b.phone);\n  const missing = [];\n  if (!text) missing.push('message');\n  if (!b.session_id) missing.push('session_id');\n  if (!email && !phone) missing.push('email_or_phone');\n  return { json: {\n    schema_version: 2,\n    message_id: newId(),\n    channel_message_id: b.message_id || null,\n    channel: 'web_chat',\n    channel_user_id: b.session_id || null,\n    thread_id: b.session_id || null,\n    customer: { name: b.name ? String(b.name).trim() : null, email, phone, company: b.company ? String(b.company).trim() : null },\n    subject: null,\n    message_text: text,\n    message_type: 'text',\n    received_at: new Date().toISOString(),\n    is_valid: text.length > 0,\n    missing_fields: missing,\n    meta: {\n      page_url: b.page_url || null,\n      user_agent: item.json.headers?.['user-agent'] || null\n    }\n  }};\n});\n"
+      },
+      "id": "206a0511-cf40-4cb8-abf6-29b8f5eacc7d",
+      "name": "Normalize → Unified Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "6c7e0906-cb10-423b-8233-a1db856ba150",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4fa42666-d2dd-4c50-ad70-74da61ea06fb",
+      "name": "Is Valid Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        688
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "=   {{ JSON.stringify({ reply: $json.ai.reply, message_id: $json.message_id, message_text: $json.message_text, debug: { intent: $json.ai.intent, urgency: $json.ai.urgency, human_escalation: $json.ai.human_escalation, already_escalated: $json.ai.already_escalated || false, from_knowledge_base: $json.ai.answered_from_knowledge_base } }) }}",
+        "options": {}
+      },
+      "id": "e32f4d21-b681-4744-a11b-b68564e7fa68",
+      "name": "Reply to Chat",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        656
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { error: 'invalid_message', missing_fields: $json.missing_fields } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "9c5d3a91-154f-449b-bad9-3e3525fa96c5",
+      "name": "Reject Empty Message",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "v7ikl3w4X0wEBwKm",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/v7ikl3w4X0wEBwKm",
+          "cachedResultName": " Multi-channel AI Agent — MCA · Core"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        1136,
+        688
+      ],
+      "id": "c4729f8b-0b10-441a-bf6a-9f75719b36f3",
+      "name": "Send To Core ",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 🛡️ Phase 9 · Safety\n**Fallback Reply** is connected to the **error output** of *Send to Core*: if Core fails, the customer still gets a polite answer.",
+        "height": 140,
+        "width": 520,
+        "color": 7
+      },
+      "id": "44d9cacb-4c13-4314-8b9b-7ee3e5f44273",
+      "name": "Note Phase 9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1056,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ reply: 'Sorry, we\\'re having a temporary technical problem. Your message has been received and a member of the Tillstone team will get back to you shortly.', fallback: true }) }}",
+        "options": {}
+      },
+      "id": "b8b575a2-b68f-4df6-95f5-66edf130c7e5",
+      "name": "Fallback Reply",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1520,
+        784
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🎤 Voice notes\n**Has Voice Note?** → audio (base64 from the website) becomes a file → OpenAI transcribes it → **Merge Transcript** turns it into a normal message for *Normalize*.\n⚙️ Setup: OpenAI credential in **Transcribe Voice Note**.",
+        "height": 282,
+        "width": 560,
+        "color": 4
+      },
+      "id": "31108fcb-c0af-49f9-9e9f-b047bb31dbcf",
+      "name": "Note Voice",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1d8190a6-6dfb-4b4f-aea4-03f434c14b56",
+              "leftValue": "={{ $json.body.audio_base64 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "76aad426-bfc6-48ff-80bb-a599fafb8915",
+      "name": "Has Voice Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -544,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "body.audio_base64",
+        "options": {
+          "fileName": "={{ 'voice.' + ((($json.body.audio_mime || '').includes('mp4')) ? 'mp4' : (($json.body.audio_mime || '').includes('ogg')) ? 'ogg' : 'webm') }}",
+          "mimeType": "={{ ($json.body.audio_mime || 'audio/webm').split(';')[0] }}"
+        }
+      },
+      "id": "e4727bc3-2269-4cc5-bd09-8c7de337cb99",
+      "name": "Audio to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -160,
+        544
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "id": "2c07e884-512d-4daf-af20-ff70444312a8",
+      "name": "Transcribe Voice Note",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        64,
+        544
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Voice note → text: put the transcript where a typed message would be, then continue as normal\nconst hook = $('Website Chat Webhook').first().json;\nconst text = String($json.text || '').trim();\nconst body = { ...hook.body, message: text ? `[Voice note] ${text}` : '', voice_note: true };\ndelete body.audio_base64;   // don't carry the audio further down the pipeline\nreturn [{ json: { headers: hook.headers, body } }];"
+      },
+      "id": "c3007463-99bf-4eda-af15-5c07d7f382e7",
+      "name": "Merge Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        544
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Website Chat Webhook": {
+      "main": [
+        [
+          {
+            "node": "Has Voice Note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize → Unified Schema": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Message?": {
+      "main": [
+        [
+          {
+            "node": "Send To Core ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject Empty Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send To Core ": {
+      "main": [
+        [
+          {
+            "node": "Reply to Chat",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Voice Note?": {
+      "main": [
+        [
+          {
+            "node": "Audio to File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize → Unified Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio to File": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Voice Note": {
+      "main": [
+        [
+          {
+            "node": "Merge Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Transcript": {
+      "main": [
+        [
+          {
+            "node": "Normalize → Unified Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "12ftgl2nh1KDCNfk",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

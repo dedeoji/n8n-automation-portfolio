@@ -1,0 +1,143 @@
+{
+  "name": "Kestrel – Handoff",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "student_name"
+            },
+            {
+              "name": "student_email"
+            },
+            {
+              "name": "topic"
+            },
+            {
+              "name": "question"
+            },
+            {
+              "name": "summary"
+            },
+            {
+              "name": "urgent",
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0f284994-b724-434e-9128-65cf6c1f4acb",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "tableId": "handoffs",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "student_name",
+              "fieldValue": "={{ $json.student_name }}"
+            },
+            {
+              "fieldId": "student_email",
+              "fieldValue": "={{ $json.student_email }}"
+            },
+            {
+              "fieldId": "topic",
+              "fieldValue": "={{ $json.topic }}"
+            },
+            {
+              "fieldId": "question",
+              "fieldValue": "={{ $json.question }}"
+            },
+            {
+              "fieldId": "summary",
+              "fieldValue": "={{ $json.summary }}"
+            },
+            {
+              "fieldId": "urgent",
+              "fieldValue": "={{ $json.urgent }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "1f920983-565a-47c0-8009-da090c5ebed2",
+      "name": "Save handoff to Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "={{ $json.urgent ? '🚨 URGENT' : 'New' }} Kestrel handoff: {{ $json.topic }}",
+        "message": "=<p><b>Student:</b> {{ $('When Executed by Another Workflow').item.json.student_name }}<br>\n<b>Email:</b> {{ $('When Executed by Another Workflow').item.json.student_email }}<br>\n<b>Topic:</b> {{ $('When Executed by Another Workflow').item.json.topic }}<br>\n<b>Urgent:</b> {{ $('When Executed by Another Workflow').item.json.urgent }}</p>\n<p><b>Question:</b><br>{{ $('When Executed by Another Workflow').item.json.question }}</p>\n<p><b>Summary:</b><br>{{ $('When Executed by Another Workflow').item.json.summary }}</p>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        64,
+        160
+      ],
+      "id": "60509ef1-6dd8-4dae-b8b3-fa85a3cc3b0d",
+      "name": "Send a message",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Save handoff to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save handoff to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

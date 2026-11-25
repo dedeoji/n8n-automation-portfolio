@@ -1,0 +1,1870 @@
+{
+  "name": "MCA · Core",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🧠 MCA · Core — Phase 3: Unified customer profile\nCalled by all three channel workflows (Execute Sub-workflow).\n\n1. **Read Customers** — loads the CRM\n2. **Match Customer** — email first, then phone\n3. New → **Add Customer** · Known → **Update Customer** · No email/phone → skip\n4. **Log Message** — every message goes to Conversations\n5. **Return Result** — sends `customer_id` back to the channel\n\n⚙️ Setup: connect Google Sheets and pick **Multi-channel AI CRM** in the 4 green Sheets nodes.\nLater phases add the AI, knowledge base, replies and escalation here.",
+        "height": 340,
+        "width": 520,
+        "color": 4
+      },
+      "id": "2d8fffcd-32c2-4d93-a7bf-7961ac98472c",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        272,
+        -416
+      ]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "dc13522d-282b-4e21-b841-908b39f3abcd",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 421171048,
+          "mode": "list",
+          "cachedResultName": "Customers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=421171048"
+        },
+        "options": {}
+      },
+      "id": "bb90c6b3-bfc8-4a2d-a066-ad62504948df",
+      "name": "Read Customers",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        464,
+        80
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Phase 3 · Find the customer by email first, then by phone. Decide: create, update or unidentified.\nconst msg = $('When Executed by Another Workflow').first().json;\nconst rows = $('Read Customers').all().map(i => i.json).filter(r => r['Customer ID']);\nconst now = msg.received_at || new Date().toISOString();\nconst email = msg.customer?.email || null;\nconst phone = msg.customer?.phone || null;\nconst digits = p => String(p ?? '').replace(/\\D/g, '');\nconst channelLabel = { web_chat: 'Website Chat', email: 'Email', whatsapp: 'WhatsApp' }[msg.channel] || msg.channel;\n\nlet match = null, matched_by = null;\nif (email) {\n  match = rows.find(r => String(r['Email'] || '').trim().toLowerCase() === email);\n  if (match) matched_by = 'email';\n}\nif (!match && phone) {\n  match = rows.find(r => digits(r['Phone']) === phone);\n  if (match) matched_by = 'phone';\n}\n\nlet action, customer;\nif (match) {\n  // Known customer: keep what we know, fill gaps with anything new, refresh activity\n  action = 'update';\n  customer = {\n    'Customer ID': match['Customer ID'],\n    'Name': match['Name'] || msg.customer?.name || '',\n    'Email': match['Email'] || email || '',\n    'Phone': match['Phone'] ? digits(match['Phone']) : (phone || ''),\n    'Company': match['Company'] || msg.customer?.company || '',\n    'Preferred Channel': channelLabel,          // last channel used, for now\n    'First Interaction': match['First Interaction'] || now,\n    'Last Interaction': now,\n    'Customer Status': match['Customer Status'] || 'Active',\n  };\n} else if (email || phone) {\n  // New customer: next ID in sequence, e.g. CUST-0001\n  action = 'create';\n  const maxNum = rows.reduce((m, r) => Math.max(m, parseInt(String(r['Customer ID']).replace(/\\D/g, ''), 10) || 0), 0);\n  customer = {\n    'Customer ID': 'CUST-' + String(maxNum + 1).padStart(4, '0'),\n    'Name': msg.customer?.name || '',\n    'Email': email || '',\n    'Phone': phone || '',\n    'Company': msg.customer?.company || '',\n    'Preferred Channel': channelLabel,\n    'First Interaction': now,\n    'Last Interaction': now,\n    'Customer Status': 'Active',\n  };\n} else {\n  // No email and no phone: we can't identify them, so no customer record is created\n  action = 'unidentified';\n  customer = { 'Customer ID': 'UNIDENTIFIED', 'Customer Status': 'Unidentified' };\n}\n\nconst conversation = {\n  'Conversation ID': `${msg.channel}:${msg.thread_id || msg.message_id}`,\n  'Customer ID': customer['Customer ID'],\n  'Channel': channelLabel,\n  'Message ID': msg.message_id,\n  'Message': (msg.subject ? `[${msg.subject}] ` : '') + (msg.message_text || ''),\n  'Sender Type': 'Customer',\n  'Timestamp': now,\n  'Intent': '',\n  'Response': '',\n};\n\nreturn [{ json: { action, matched_by, customer_row: customer, conversation_row: conversation } }];\n"
+      },
+      "id": "5814de05-ef30-4a24-b7bf-019f7b83fa17",
+      "name": "Match Customer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "d38920dd-6f9a-4818-8d39-8d3471a8c675",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "create",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cf9659a8-733f-4909-b13a-d17f599e2c0b",
+      "name": "New Customer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        912,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('Match Customer').first().json.customer_row }];"
+      },
+      "id": "71075d3a-2e64-4fb5-8770-989d43871b81",
+      "name": "Build New Customer Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1152,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 421171048,
+          "mode": "list",
+          "cachedResultName": "Customers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=421171048"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Customer ID",
+              "displayName": "Customer ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Preferred Channel",
+              "displayName": "Preferred Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "First Interaction",
+              "displayName": "First Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Interaction",
+              "displayName": "Last Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer Status",
+              "displayName": "Customer Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "c943451e-ce09-4b19-bc36-5767df5a81eb",
+      "name": "Add Customer",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1360,
+        -64
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "34e4deaa-097c-4bc7-b362-596cea1e98de",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "update",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6fb304ce-646b-4e03-bf1f-28e7397d5802",
+      "name": "Known Customer?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1168,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('Match Customer').first().json.customer_row }];"
+      },
+      "id": "c464334f-dce8-40bf-9d6d-eb3cf8e5fba1",
+      "name": "Build Customer Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: $('Match Customer').first().json.conversation_row }];"
+      },
+      "id": "c59ea410-cdeb-403d-ab79-114635e46329",
+      "name": "Build Conversation Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1102067131,
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1102067131"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Conversation ID",
+              "displayName": "Conversation ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer ID",
+              "displayName": "Customer ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Channel",
+              "displayName": "Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message ID",
+              "displayName": "Message ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sender Type",
+              "displayName": "Sender Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Intent",
+              "displayName": "Intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Response",
+              "displayName": "Response",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "b6fc858d-4972-4d87-be5b-69587fdaa18e",
+      "name": "Log Message",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2048,
+        160
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Hand the message back to the channel workflow with the final decision and reply\nconst msg = $('When Executed by Another Workflow').first().json;\nconst m = $('Match Customer').first().json;\nconst decision = $('Holding Reply').isExecuted ? $('Holding Reply').first().json : $('Apply Escalation Rules').first().json;\nconst ai = decision.ai;\nconst f = $('Format Reply').first().json;\nreturn [{ json: {\n  ...msg,\n  customer_id: m.customer_row['Customer ID'],\n  customer_status: (ai.human_escalation && m.customer_row['Customer ID'] !== 'UNIDENTIFIED') ? 'Escalated' : m.customer_row['Customer Status'],\n  is_new_customer: m.action === 'create',\n  matched_by: m.matched_by,\n  crm_action: m.action,\n  ai: { ...ai, reply: f.final_reply },\n  reply_channel: f.channel,\n}}];\n"
+      },
+      "id": "7c5453b7-9cc3-4e8e-a574-6202add19134",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6592,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 421171048,
+          "mode": "list",
+          "cachedResultName": "Customers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=421171048"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Customer ID"
+          ],
+          "schema": [
+            {
+              "id": "Customer ID",
+              "displayName": "Customer ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Preferred Channel",
+              "displayName": "Preferred Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "First Interaction",
+              "displayName": "First Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Interaction",
+              "displayName": "Last Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer Status",
+              "displayName": "Customer Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "e9724329-6875-4a96-92e6-92632bf0449c",
+      "name": "Update Customer",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1584,
+        80
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 🤖 Phase 4 · AI understanding\nReads this customer's history → builds one standard input → OpenAI returns intent, urgency, escalation as JSON → intent saved to Conversations.\n\n⚙️ Setup: Google Sheets credential + **Multi-channel AI CRM** in the 2 Sheets nodes; OpenAI credential in the Chat Model.",
+        "height": 200,
+        "width": 520,
+        "color": 6
+      },
+      "id": "93028a30-2061-4fe2-a1cc-660ec2067bee",
+      "name": "Note Phase 4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3056,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1102067131,
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1102067131"
+        },
+        "options": {}
+      },
+      "id": "d3b138d0-a423-44df-a2ac-14527a6736de",
+      "name": "Read Conversations",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2592,
+        288
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 5 · Build the standardized AI input (+ the Tillstone knowledge base): customer ID, channel, message, previous context, customer info\nconst msg = $('When Executed by Another Workflow').first().json;\nconst c = $('Match Customer').first().json.customer_row;\nconst id = c['Customer ID'];\n\n// Previous messages for this customer, from every channel (oldest first, last 10, excluding the new one)\nconst rows = $('Read Conversations').all().map(i => i.json).filter(r => r['Customer ID']);\nconst history = id === 'UNIDENTIFIED' ? [] :\n  rows.filter(r => r['Customer ID'] === id && r['Message ID'] !== msg.message_id).slice(-10);\nconst channels = [...new Set(history.map(r => r.Channel))];\nconst previous_context = history.length\n  ? history.map(r => `[${r.Channel} · ${r.Timestamp}] ${r['Sender Type'] || 'Customer'}: ${r.Message}` +\n      (r.Response ? `\\n[${r.Channel}] Tillstone: ${r.Response}` : '')).join('\\n')\n  : '(no previous messages)';\n\nconst channelLabel = { web_chat: 'Website Chat', email: 'Email', whatsapp: 'WhatsApp' }[msg.channel] || msg.channel;\nconst ai_input = {\n  customer_id: id,\n  channel: channelLabel,\n  message: (msg.subject ? `[Subject: ${msg.subject}] ` : '') + (msg.message_text || ''),\n  previous_context,\n  customer: {\n    name: c['Name'] || msg.customer?.name || 'Unknown',\n    company: c['Company'] || '',\n    email: c['Email'] || '',\n    phone: c['Phone'] || '',\n    status: c['Customer Status'] || '',\n    channels_used_before: channels,\n  },\n};\n\n// Knowledge base: every row of every tab, written as \"Column: value\" lines\nconst kbRows = name => $(name).all().map(i => i.json).filter(r => Object.values(r).some(v => String(v ?? '').trim()));\nconst fmt = r => Object.entries(r).filter(([k, v]) => k !== 'row_number' && String(v ?? '').trim()).map(([k, v]) => `${k}: ${v}`).join(' | ');\nconst knowledge =\n  'PRODUCTS\\n' + kbRows('Read KB Products').map(r => '- ' + fmt(r)).join('\\n') +\n  '\\n\\nFAQS\\n' + kbRows('Read KB FAQs').map(r => `- Q: ${r.Question}\\n  A: ${r.Answer}`).join('\\n') +\n  '\\n\\nPOLICIES\\n' + kbRows('Read KB Policies').map(r => `- ${r.Topic}: ${r.Policy}`).join('\\n');\n\nconst prompt =\n`TILLSTONE KNOWLEDGE BASE\n${knowledge}\n\nCUSTOMER\n- Customer ID: ${ai_input.customer_id}\n- Name: ${ai_input.customer.name}\n- Business: ${ai_input.customer.company || 'not given'}\n- Status: ${ai_input.customer.status}\n- Channels used before: ${channels.length ? channels.join(', ') : 'none'}\n\nCHANNEL OF THIS MESSAGE: ${ai_input.channel}\n\nPREVIOUS CONVERSATION (oldest first):\n${previous_context}\n\nNEW MESSAGE:\n${ai_input.message}`;\n\nreturn [{ json: { ai_input, prompt, knowledge_chars: knowledge.length } }];\n"
+      },
+      "id": "43f4c8fc-e515-40ee-af1c-a2bac6ef9b9b",
+      "name": "Build AI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": true,
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are the central customer-understanding brain for Tillstone, a fictional Nigerian fintech group based in Abuja:\n- Tillstone Payments (CBN-licensed PSSP, PTSP and Super Agent): Android POS terminals (buy or rent), an online payment gateway, payment links, and an agent banking network.\n- Tillstone Microfinance Bank: personal and business accounts, and small (micro) loans for individuals and small businesses.\n\nHUMAN HANDOFF:\n- You cannot investigate, check records, reverse transactions or make decisions. Never say \"we are investigating\", \"I have checked\" or \"we have reviewed\". Say what the team will do instead.\n- Always fill conversation_summary: 2 to 4 sentences for a human agent, summarising the whole conversation across all channels: the issue, what the customer has already provided, what was already answered, and what is still open.\n\n\nThe same instructions apply to every channel (Website Chat, Email, WhatsApp). The channel never changes how you understand a message; it only matters later for how the reply is written.\n\nYOUR JOB: (1) understand the customer's newest message, and (2) write the reply Tillstone will send. Return only the structured JSON requested.\n\nUse the previous conversation, from any channel, to understand short or vague messages. Example: if the customer earlier asked about a delayed settlement and now writes \"any update?\", the intent is Order Information about that settlement. Never mark information as missing if the customer already gave it earlier.\n\nINTENTS (choose exactly one):\n- Product Inquiry: what a product is, how it works, eligibility, how to apply or open (POS, gateway, payment links, agent banking, accounts, loans).\n- Pricing: fees, charges, rates, interest, POS price or rental, transaction charges.\n- Technical Support: something not working: POS errors (e.g. \"host not reachable\"), login problems, app or gateway integration issues, card or terminal faults.\n- Order Information: status of something already in progress: settlements, a transfer, a loan application, a POS delivery or activation, account opening status.\n- Complaint: the customer is unhappy with service or reports a loss: debited but transaction failed, repeated problems, poor treatment.\n- Appointment: wants to book a meeting, visit, demo, or a field engineer.\n- General Question: anything else about Tillstone: opening hours, locations, documents in general, who we are.\n- Human Assistance: explicitly asks for a person, agent, call-back or manager.\n\nURGENCY:\n- high: money missing or at risk (debited but failed, missing settlement, suspected fraud or unauthorised transaction), a merchant unable to take payments right now, or a clearly angry or repeated complaint.\n- medium: a problem that is affecting the customer but no money is at risk yet.\n- low: questions and information requests.\n\nHUMAN ESCALATION (human_escalation = true) when ANY of these apply:\n- the intent is Complaint or Human Assistance;\n- disputes, chargebacks, reversals, or a customer debited for a failed transaction;\n- suspected fraud, account compromise, or unauthorised transactions;\n- the customer is clearly frustrated, or this is the same unresolved issue raised again;\n- corporate or bulk deals, or anything requiring a decision outside standard policy.\nOtherwise human_escalation = false.\n\nRESPONSE TYPE:\n- escalate_to_human: when human_escalation is true.\n- ask_for_information: when we cannot help without more details (e.g. transaction reference, terminal ID, date, amount, account type).\n- answer: when the question can be answered directly.\n\nFill required_information with the specific details still missing (empty list if none). Put any facts the customer gave (product, amount, date, reference, terminal ID, business name) in important_details. Write summary as one short sentence in plain English. Never invent facts the customer did not give.\n\nKNOWLEDGE BASE RULES (very important):\n- The TILLSTONE KNOWLEDGE BASE in each request is the ONLY source of facts about Tillstone: products, prices, fees, timelines, policies, addresses, hours.\n- Never invent a price, fee, timeline, product, branch or policy. If the answer is not in the knowledge base, say honestly that you don't have that information and that a team member will follow up. Then set answered_from_knowledge_base = false, human_escalation = true, response_type = escalate_to_human and escalation_reason = \"not in knowledge base\".\n- You cannot see account balances, transaction records or loan decisions. Never claim to have checked them. Ask for the details needed (terminal ID, transaction date, amount, reference) or pass the case to the team.\n- Never ask for a PIN, password, OTP or full card number. If the customer offers one, tell them not to share it.\n- When human_escalation is true, the reply acknowledges the issue, says a team member will contact them within 4 business hours on this channel, and does not try to solve it.\n\nREPLY STYLE: the facts are the same on every channel; only the writing changes.\n- Website Chat: 1 to 3 short, friendly sentences. No greeting line, no sign-off.\n- WhatsApp: short and conversational, plain text only (no markdown, no bullet symbols), at most about 60 words.\n- Email: start with \"Dear <first name>,\" then a complete, polite answer in short paragraphs, and end with \"Best regards,\\nTillstone Support\".\n- Use the customer's first name when known. Write in clear, simple English. Amounts in naira with the ₦ sign.\n\nCROSS-CHANNEL CONTINUITY:\n- The customer may switch channels (for example, website chat, then email, then WhatsApp). Treat it as one ongoing conversation.\n- If the previous conversation shows they already raised this issue, refer back to it naturally (for example: \"Following up on your chat earlier about your settlement...\").\n- Never ask again for details they already gave on any channel (terminal ID, amount, date, business name). Use them in your reply.\n\nPHASE 10 CORRECTIONS (these override anything above if they conflict):\n- Answer the exact question asked. If the knowledge base has related information but not the specific fact asked for, it is NOT in the knowledge base. Example: asked \"Do you have a branch in Kano?\" and the knowledge base only lists the Abuja office → do not give the Abuja address as the answer; say you don't have information about a Kano branch, set answered_from_knowledge_base = false and human_escalation = true with escalation_reason = \"not in knowledge base\".\n- If the customer shares an OTP, PIN, password or card number, the FIRST sentence of the reply warns them never to share it with anyone, including Tillstone staff. Never repeat the code back.\n- Settlement questions: always explain the normal settlement timing from the knowledge base (for example T+1: next business day) before asking for the terminal ID and date.\n- Suspected fraud or unauthorised transactions: tell the customer to change their PIN and password now and not to share any codes, then escalate.\n- Make the three channels clearly different in style:\n  - Website Chat: friendly and direct, 1 to 3 short sentences.\n  - WhatsApp: casual and warm, like a helpful person texting: short sentences, contractions (you'll, it's), one idea per line, no markdown, under 60 words. You may start with \"Hi <first name>!\".\n  - Email: formal letter. \"Dear <first name>,\" then a thank-you line, the full answer in 2 to 3 short paragraphs, a closing line offering more help, then \"Best regards,\\nTillstone Support\".\n\n"
+            }
+          ]
+        }
+      },
+      "id": "668b4b58-d936-4085-96ac-abd1077c5246",
+      "name": "AI Understanding",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        3552,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "id": "2c0b4513-b688-4ee9-ab20-b21353c29250",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        3456,
+        576
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"intent\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"Product Inquiry\",\n        \"Pricing\",\n        \"Technical Support\",\n        \"Order Information\",\n        \"Complaint\",\n        \"Appointment\",\n        \"General Question\",\n        \"Human Assistance\"\n      ]\n    },\n    \"confidence\": {\n      \"type\": \"number\",\n      \"description\": \"0 to 1\"\n    },\n    \"urgency\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"low\",\n        \"medium\",\n        \"high\"\n      ]\n    },\n    \"required_information\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"response_type\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"answer\",\n        \"ask_for_information\",\n        \"escalate_to_human\"\n      ]\n    },\n    \"human_escalation\": {\n      \"type\": \"boolean\"\n    },\n    \"escalation_reason\": {\n      \"type\": \"string\",\n      \"description\": \"Empty string when no escalation\"\n    },\n    \"preferred_action\": {\n      \"type\": \"string\",\n      \"description\": \"What the customer wants Tillstone to do\"\n    },\n    \"important_details\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"product\": {\n          \"type\": \"string\"\n        },\n        \"amount\": {\n          \"type\": \"string\"\n        },\n        \"date\": {\n          \"type\": \"string\"\n        },\n        \"reference\": {\n          \"type\": \"string\"\n        },\n        \"other\": {\n          \"type\": \"string\"\n        }\n      }\n    },\n    \"summary\": {\n      \"type\": \"string\"\n    },\n    \"reply\": {\n      \"type\": \"string\",\n      \"description\": \"The message Tillstone sends back, written in the style for this channel\"\n    },\n    \"answered_from_knowledge_base\": {\n      \"type\": \"boolean\"\n    },\n    \"conversation_summary\": {\n      \"type\": \"string\",\n      \"description\": \"2-4 sentences for a human agent covering the whole conversation\"\n    }\n  },\n  \"required\": [\n    \"intent\",\n    \"confidence\",\n    \"urgency\",\n    \"required_information\",\n    \"response_type\",\n    \"human_escalation\",\n    \"escalation_reason\",\n    \"preferred_action\",\n    \"important_details\",\n    \"summary\",\n    \"reply\",\n    \"answered_from_knowledge_base\",\n    \"conversation_summary\"\n  ]\n}"
+      },
+      "id": "9d528cd0-1d26-4c18-8bad-c0cca48b7bb6",
+      "name": "Intent JSON Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        3808,
+        608
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "   // Save the intent and the reply on this message's row in Conversations\n   const msg = $('When Executed by Another Workflow').first().json;\n   const decision = $('Holding Reply').isExecuted ? $('Holding Reply').first().json : $('Apply Escalation Rules').first().json;\n   const ai = decision.ai;\n   const intent = ai.already_escalated ? 'Escalated: AI paused' : ai.intent + (ai.human_escalation ? ' (escalated)' : '');\n   return [{ json: { 'Message ID': msg.message_id, 'Intent': intent, 'Response': ai.reply } }];"
+      },
+      "id": "da2a2bdf-f7b1-490d-bd3e-3b00637d1861",
+      "name": "Build Intent Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4112,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1102067131,
+          "mode": "list",
+          "cachedResultName": "Conversations",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1102067131"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Message ID"
+          ],
+          "schema": [
+            {
+              "id": "Conversation ID",
+              "displayName": "Conversation ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Customer ID",
+              "displayName": "Customer ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Channel",
+              "displayName": "Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Message ID",
+              "displayName": "Message ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Message",
+              "displayName": "Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sender Type",
+              "displayName": "Sender Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Intent",
+              "displayName": "Intent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Response",
+              "displayName": "Response",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "42204c54-d12b-4e4f-8810-3238a9eb1141",
+      "name": "Save Intent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        4336,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 📚 Phase 5 · Knowledge base\nReads the 3 tabs of **Tillstone Knowledge Base** once per message and passes them to Build AI Input. The AI may only use these facts.",
+        "height": 112,
+        "width": 640,
+        "color": 5
+      },
+      "id": "19a36152-f8c9-4bcf-b055-7703f887f838",
+      "name": "Note Phase 5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        4032,
+        -384
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Tillstone Knowledge Base"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1325003280,
+          "mode": "list",
+          "cachedResultName": "Products",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1325003280"
+        },
+        "options": {}
+      },
+      "id": "7aec848f-a400-4119-aa60-f3942a32486e",
+      "name": "Read KB Products",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2752,
+        288
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Tillstone Knowledge Base"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1507142558,
+          "mode": "list",
+          "cachedResultName": "FAQs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1507142558"
+        },
+        "options": {}
+      },
+      "id": "8acd82d5-96cb-4f09-9d55-d075bef12027",
+      "name": "Read KB FAQs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2960,
+        288
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Tillstone Knowledge Base"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1745232275,
+          "mode": "list",
+          "cachedResultName": "Policies",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=1745232275"
+        },
+        "options": {}
+      },
+      "id": "791552eb-a206-4bf5-9ce4-b444fbf95ef1",
+      "name": "Read KB Policies",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3184,
+        288
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 📤 Phase 6 · Reply on the same channel\n**Format Reply** applies each channel's style → **Route by Channel** (Switch) sends it down one branch:\n- Website Chat → returned to the chat window by the Website Chat workflow\n- Email → Gmail replies in the customer's thread\n- WhatsApp → returned to the simulator (later: Meta WhatsApp API)\n\n⚙️ Setup: Gmail credential in **Email: Reply in Thread**.",
+        "height": 240,
+        "width": 600,
+        "color": 3
+      },
+      "id": "ca7711ff-108a-460b-9141-ce755825e734",
+      "name": "Note Phase 6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5136,
+        -384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 6 · Final formatting per channel (a safety net on top of the AI's style rules)\nconst msg = $('When Executed by Another Workflow').first().json;\nconst decision = $('Holding Reply').isExecuted ? $('Holding Reply').first().json : $('Apply Escalation Rules').first().json;\nconst ai = decision.ai;\nconst first = String($('Match Customer').first().json.customer_row['Name'] || msg.customer?.name || '').trim().split(/\\s+/)[0] || 'Customer';\nlet text = String(ai.reply || '').trim();\nconst stripMarkdown = t => t\n  .replace(/\\*\\*(.+?)\\*\\*/g, '$1').replace(/__(.+?)__/g, '$1')\n  .replace(/^#+\\s*/gm, '').replace(/^\\s*[-*•]\\s+/gm, '')\n  .replace(/\\[(.+?)\\]\\((.+?)\\)/g, '$1 ($2)');\n\nif (!text) text = \"Thanks for your message. A member of the Tillstone team will get back to you shortly.\";\n\nif (msg.channel === 'web_chat') {\n  text = stripMarkdown(text);\n} else if (msg.channel === 'whatsapp') {\n  text = stripMarkdown(text).replace(/\\n{3,}/g, '\\n\\n');\n  if (text.length > 700) text = text.slice(0, 680).replace(/\\s+\\S*$/, '') + '…';\n} else if (msg.channel === 'email') {\n  if (!/^dear\\b/i.test(text)) text = `Dear ${first},\\n\\n` + text;\n  if (!/best regards/i.test(text)) text = text.replace(/\\s+$/, '') + '\\n\\nBest regards,\\nTillstone Support';\n}\n\nreturn [{ json: { channel: msg.channel, final_reply: text } }];\n"
+      },
+      "id": "ef20cbe2-51e5-4ca3-a4ea-faeda62ad009",
+      "name": "Format Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5600,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "f7ebd5d5-d439-45bd-8284-d24aef54badf",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "web_chat",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Website Chat"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "3f3c9999-ec63-48a2-be1f-bfe8ac731674",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Email"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "05dffa83-47a7-481f-83cb-552afb4f4030",
+                    "leftValue": "={{ $json.channel }}",
+                    "rightValue": "whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "WhatsApp"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "2a196e2e-3d6b-4c45-8f9b-7e7e8fc3e763",
+      "name": "Route by Channel",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        6016,
+        320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "ec220973-737d-4755-ad17-a72137e9bf0c",
+      "name": "Website Chat: Reply Ready",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        6256,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('When Executed by Another Workflow').first().json.meta.gmail_id }}",
+        "emailType": "text",
+        "message": "={{ $json.final_reply }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "2ee88dc3-e4be-45fa-92a3-cf43cf42ca59",
+      "name": "Email: Reply in Thread",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        6256,
+        304
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "7d895218-c217-41ec-a2f9-902022094d2d",
+      "name": "WhatsApp: Reply Ready (Simulated)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        6256,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🚨 Phase 8 · Human handoff\n**Already Escalated?** → AI paused, holding reply only.\n**Apply Escalation Rules** → AI judgement + rules (complaint / human request always; 3rd contact about the same unresolved issue).\n**Needs Human?** → handoff summary emailed to Samuel, customer marked **Escalated** in the CRM.\nTo resume the AI for a customer: set Customer Status back to **Active**.",
+        "height": 220,
+        "width": 680,
+        "color": 2
+      },
+      "id": "52311c6e-f4ac-4947-9978-e93994123b42",
+      "name": "Note Phase 8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        5936,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "734e7d0d-fb7b-4faa-b1f6-9215d961a608",
+              "leftValue": "={{ $('Match Customer').first().json.customer_row['Customer Status'] === 'Escalated' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "01552a14-7e5e-4b84-b2e1-ea50c199121f",
+      "name": "Already Escalated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 8 · Customer is already Escalated: the AI is paused. Send a short holding reply instead.\nconst c = $('Match Customer').first().json.customer_row;\nconst first = String(c['Name'] || '').trim().split(/\\s+/)[0] || 'there';\nconst reply = `Hi ${first}, your case is already with our team and a team member will contact you shortly on this channel. Thank you for your patience.`;\nreturn [{ json: { ai: {\n  intent: 'Human Assistance', confidence: 1, urgency: 'medium', required_information: [],\n  response_type: 'holding_reply', human_escalation: false, already_escalated: true,\n  escalation_reason: '', preferred_action: '', important_details: {},\n  summary: 'Customer already escalated; AI paused; holding reply sent.',\n  conversation_summary: '', reply, answered_from_knowledge_base: false,\n}}}];"
+      },
+      "id": "302f671d-8e19-4248-87c8-0c08781f7b2c",
+      "name": "Holding Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        -64
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 8 · Escalation rules applied on top of the AI's judgement\n// v2 (Phase 10 fixes): safety warning when a customer shares an OTP/PIN (#17),\n// security advice on fraud escalations (#28), never re-escalate an already\n// escalated customer (#23, #29 safety net) (#30 is fixed in the prompt).\nconst msg = $('When Executed by Another Workflow').first().json;\nconst c = $('Match Customer').first().json.customer_row;\nconst id = c['Customer ID'];\nconst ai = { ...$('AI Understanding').first().json.output };\nconst first = String(c['Name'] || msg.customer?.name || '').trim().split(/\\s+/)[0] || '';\nconst text = String(msg.message_text || '') + ' ' + String(msg.subject || '');\n\n// Safety net: customer is already with a human → holding reply, no new handoff\nif (c['Customer Status'] === 'Escalated') {\n  ai.human_escalation = false; ai.already_escalated = true; ai.response_type = 'holding_reply';\n  ai.reply = msg.channel === 'email'\n    ? `Dear ${first || 'Customer'},\\n\\nYour case is already with our team and a team member will contact you shortly by email. Thank you for your patience.\\n\\nBest regards,\\nTillstone Support`\n    : `Hi ${first || 'there'}, your case is already with our team and a team member will contact you shortly on this channel. Thank you for your patience.`;\n  return [{ json: { ai, escalated_by: null } }];\n}\n\nlet escalated_by = ai.human_escalation ? 'ai' : null;\n\n// Rule 1: these intents always go to a human\nif (['Complaint', 'Human Assistance'].includes(ai.intent) && !ai.human_escalation) {\n  ai.human_escalation = true; escalated_by = 'rule';\n  ai.escalation_reason = ai.escalation_reason || `${ai.intent} always goes to a human`;\n}\n\n// Rule 2: repeated unresolved issue = 3rd contact in a row about the same problem\nconst rows = $('Read Conversations').all().map(i => i.json)\n  .filter(r => r['Customer ID'] === id && r['Message ID'] !== msg.message_id);\nconst recent = id === 'UNIDENTIFIED' ? [] : rows.slice(-4);\nconst sameTopic = recent.filter(r => r.Intent === ai.intent).length;\nif (!ai.human_escalation && sameTopic >= 2 && ['Technical Support', 'Order Information', 'Complaint'].includes(ai.intent)) {\n  ai.human_escalation = true; escalated_by = 'rule';\n  ai.escalation_reason = `Repeated unresolved issue: contact number ${sameTopic + 1} about ${ai.intent}`;\n}\n\n// Safety lines that must survive the fixed handoff template\nconst sharedSecret = /\\b(otp|pin|password|cvv|token)\\b/i.test(text) && /\\d{4,}/.test(text);\nconst fraud = /(unauthori[sz]ed|fraud|scam|hack|did not authori[sz]e|didn'?t authori[sz]e|stolen)/i.test(text);\nconst safety = [\n  sharedSecret ? 'For your safety, please never share your OTP, PIN or password with anyone, including Tillstone staff. If you have shared it, change your PIN now.' : '',\n  fraud ? 'To protect your account right now, change your PIN and password and do not share any codes with anyone.' : '',\n].filter(Boolean).join(' ');\n\nif (ai.human_escalation) {\n  ai.response_type = 'escalate_to_human';\n  const d = new Date().toISOString().slice(0, 10).replace(/-/g, '');\n  ai.escalation_ref = `ESC-${d}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;\n  const sorry = ai.intent === 'Complaint' ? \"I'm sorry about this. \" : '';\n  const noInfo = ai.answered_from_knowledge_base === false ? \"I don't have that information yet. \" : '';\n  if (id === 'UNIDENTIFIED') {\n    // We can't hand over someone we can't contact: ask for contact details instead of promising a call-back\n    ai.reply = `${sorry}${noInfo}I'd like to pass this to our team. Please share your phone number or email address so a team member can contact you.${safety ? ' ' + safety : ''}`;\n  } else if (msg.channel === 'email') {\n    ai.reply = `Dear ${first || 'Customer'},\\n\\nThank you for contacting Tillstone. ${sorry}${noInfo}I have passed your case to our team (reference ${ai.escalation_ref}). A team member will contact you by email within 4 business hours.${safety ? '\\n\\n' + safety : ''}\\n\\nBest regards,\\nTillstone Support`;\n  } else {\n    ai.reply = `${first ? `Thanks, ${first}. ` : ''}${safety ? safety + ' ' : ''}${sorry}${noInfo}I've passed this to our team (reference ${ai.escalation_ref}). A team member will contact you here within 4 business hours.`;\n  }\n} else if (safety && !/never share/i.test(ai.reply || '')) {\n  ai.reply = `${safety} ${ai.reply || ''}`.trim();\n}\n\nreturn [{ json: { ai, escalated_by } }];\n"
+      },
+      "id": "fec3e327-40a2-4080-aa45-7d3689b8fba5",
+      "name": "Apply Escalation Rules",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3872,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e0df9234-d02f-4da9-9e2f-419c929dfa43",
+              "leftValue": "={{ !$('Holding Reply').isExecuted && $('Apply Escalation Rules').first().json.ai.human_escalation === true && $('Match Customer').first().json.customer_row['Customer ID'] !== 'UNIDENTIFIED' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "a9d1c7f3-f8bf-42b1-b7e7-dc575f69157e",
+      "name": "Needs Human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4528,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 8 · Handoff summary for the human agent\nconst msg = $('When Executed by Another Workflow').first().json;\nconst c = $('Match Customer').first().json.customer_row;\nconst { ai, escalated_by } = $('Apply Escalation Rules').first().json;\nconst channelLabel = { web_chat: 'Website Chat', email: 'Email', whatsapp: 'WhatsApp' }[msg.channel] || msg.channel;\nconst history = $('Read Conversations').all().map(i => i.json)\n  .filter(r => r['Customer ID'] === c['Customer ID'] && r['Message ID'] !== msg.message_id).slice(-10);\nconst channels = [...new Set([...history.map(r => r.Channel), channelLabel])];\nconst details = Object.entries(ai.important_details || {}).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(', ') || 'none';\n\nconst subject = `[ESCALATION · ${String(ai.urgency).toUpperCase()}] ${c['Name'] || 'Customer'} – ${ai.intent} (${ai.escalation_ref})`;\nconst body =\n`A customer conversation needs a human.\n\nCASE\nReference: ${ai.escalation_ref}\nEscalated by: ${escalated_by === 'rule' ? 'business rule' : 'AI'}\nReason: ${ai.escalation_reason || 'n/a'}\n\nCUSTOMER\n${c['Customer ID']} · ${c['Name'] || 'Unknown'}${c['Company'] ? ' · ' + c['Company'] : ''}\nEmail: ${c['Email'] || '-'}   Phone: ${c['Phone'] || '-'}\nChannels used: ${channels.join(', ')}\nLatest channel: ${channelLabel}\n\nISSUE\n${ai.summary}\n\nCONVERSATION SUMMARY (AI)\n${ai.conversation_summary || ai.summary}\n\nAI ANALYSIS\nIntent: ${ai.intent} · Urgency: ${ai.urgency} · Confidence: ${ai.confidence}\nCustomer wants: ${ai.preferred_action || '-'}\nDetails given: ${details}\nStill missing: ${(ai.required_information || []).join(', ') || 'nothing'}\n\nRECENT HISTORY (oldest first)\n${history.map(r => `[${r.Channel} · ${r.Timestamp}] Customer: ${r.Message}${r.Response ? `\\n   Tillstone: ${r.Response}` : ''}`).join('\\n') || '(none)'}\n[${channelLabel} · ${msg.received_at}] Customer: ${(msg.subject ? '[' + msg.subject + '] ' : '') + msg.message_text}\n\nWHAT THE CUSTOMER WAS TOLD\n${ai.reply}\n\nNEXT STEPS\n1. Contact the customer on ${channelLabel} within 4 business hours.\n2. The AI is paused for this customer. When resolved, set Customer Status back to \"Active\" in the Multi-channel AI CRM sheet.`;\n\nreturn [{ json: { subject, body } }];"
+      },
+      "id": "42033fee-6892-4054-b7f1-cb2a644beaa6",
+      "name": "Build Handoff Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4720,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "you@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "5f5089fc-9798-419e-9c64-d4362414e31d",
+      "name": "Send Handoff Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        4960,
+        160
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "   // Mark the customer as Escalated in the CRM (this pauses the AI for them)\n   const c = $('Match Customer').first().json.customer_row;\n   return [{ json: { 'Customer ID': c['Customer ID'], 'Customer Status': 'Escalated' } }];"
+      },
+      "id": "f25e8b9b-517a-445b-b0e6-917d7ff2d9bd",
+      "name": "Build Status Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5200,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Multi-channel AI CRM"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 421171048,
+          "mode": "list",
+          "cachedResultName": "Customers",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=421171048"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Customer ID"
+          ],
+          "schema": [
+            {
+              "id": "Customer ID",
+              "displayName": "Customer ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone",
+              "displayName": "Phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Preferred Channel",
+              "displayName": "Preferred Channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "First Interaction",
+              "displayName": "First Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Last Interaction",
+              "displayName": "Last Interaction",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Customer Status",
+              "displayName": "Customer Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "2c1d8396-9a6f-476d-ac6e-18e31b69be2a",
+      "name": "Mark Customer Escalated",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        5360,
+        160
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read Customers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Customers": {
+      "main": [
+        [
+          {
+            "node": "Match Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Customer": {
+      "main": [
+        [
+          {
+            "node": "New Customer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Customer?": {
+      "main": [
+        [
+          {
+            "node": "Build New Customer Row",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Known Customer?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build New Customer Row": {
+      "main": [
+        [
+          {
+            "node": "Add Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add Customer": {
+      "main": [
+        [
+          {
+            "node": "Build Conversation Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Known Customer?": {
+      "main": [
+        [
+          {
+            "node": "Build Customer Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Conversation Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Customer Update": {
+      "main": [
+        [
+          {
+            "node": "Update Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Conversation Row": {
+      "main": [
+        [
+          {
+            "node": "Log Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Message": {
+      "main": [
+        [
+          {
+            "node": "Already Escalated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer": {
+      "main": [
+        [
+          {
+            "node": "Build Conversation Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Conversations": {
+      "main": [
+        [
+          {
+            "node": "Read KB Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Input": {
+      "main": [
+        [
+          {
+            "node": "AI Understanding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Understanding",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent JSON Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Understanding",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Understanding": {
+      "main": [
+        [
+          {
+            "node": "Apply Escalation Rules",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Intent Update": {
+      "main": [
+        [
+          {
+            "node": "Save Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Intent": {
+      "main": [
+        [
+          {
+            "node": "Needs Human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read KB Products": {
+      "main": [
+        [
+          {
+            "node": "Read KB FAQs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read KB FAQs": {
+      "main": [
+        [
+          {
+            "node": "Read KB Policies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read KB Policies": {
+      "main": [
+        [
+          {
+            "node": "Build AI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Reply": {
+      "main": [
+        [
+          {
+            "node": "Route by Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Channel": {
+      "main": [
+        [
+          {
+            "node": "Website Chat: Reply Ready",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email: Reply in Thread",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "WhatsApp: Reply Ready (Simulated)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email: Reply in Thread": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Website Chat: Reply Ready": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp: Reply Ready (Simulated)": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already Escalated?": {
+      "main": [
+        [
+          {
+            "node": "Holding Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Read Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Human?": {
+      "main": [
+        [
+          {
+            "node": "Build Handoff Summary",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Handoff Summary": {
+      "main": [
+        [
+          {
+            "node": "Send Handoff Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Handoff Email": {
+      "main": [
+        [
+          {
+            "node": "Build Status Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Status Update": {
+      "main": [
+        [
+          {
+            "node": "Mark Customer Escalated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Holding Reply": {
+      "main": [
+        [
+          {
+            "node": "Build Intent Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Escalation Rules": {
+      "main": [
+        [
+          {
+            "node": "Build Intent Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Customer Escalated": {
+      "main": [
+        [
+          {
+            "node": "Format Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "12ftgl2nh1KDCNfk",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

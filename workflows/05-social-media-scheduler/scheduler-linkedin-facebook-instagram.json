@@ -1,0 +1,1373 @@
+{
+  "name": "Social Media Content Scheduler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -48,
+        192
+      ],
+      "id": "25af97c9-b7a8-4698-bdff-65d881f1b27c",
+      "name": "Run Manually"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a19680c6-0ea4-4564-86d6-6dcdcc68c5a2",
+              "name": "sheetId",
+              "value": "1Y7F4QwDDkhRNzS2IHJqC8do443uioAR8hPE10THClbE",
+              "type": "string"
+            },
+            {
+              "id": "f90a2253-6c8e-4408-adbf-a142c3a355a7",
+              "name": "sheetName",
+              "value": "Calendar",
+              "type": "string"
+            },
+            {
+              "id": "593ebd0e-683a-4a4e-81a4-99afbe982c24",
+              "name": "timezone",
+              "value": "Africa/Lagos",
+              "type": "string"
+            },
+            {
+              "id": "67e156b4-cc17-49d7-89ba-43d9844302c3",
+              "name": "maxLatenessHours",
+              "value": "48",
+              "type": "number"
+            },
+            {
+              "id": "f751d6a4-11d4-4fe7-b935-9d9607b72799",
+              "name": "telegramChatId",
+              "value": "YOUR_TELEGRAM_CHAT_ID",
+              "type": "string"
+            },
+            {
+              "id": "bd3ff373-d4b6-4c1c-8ec0-d0833ae957bc",
+              "name": "fbPageId",
+              "value": "YOUR_FACEBOOK_PAGE_ID",
+              "type": "string"
+            },
+            {
+              "id": "46383405-72dc-4452-9c73-10a6d01fc072",
+              "name": "igUserId",
+              "value": "YOUR_INSTAGRAM_ACCOUNT_ID",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        176,
+        96
+      ],
+      "id": "a4c5e619-1a71-4bc6-95fa-3b4a7f840da4",
+      "name": "Config"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $json.sheetName }}",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        400,
+        96
+      ],
+      "id": "1cbca3be-67db-4e18-8cad-41612129984a",
+      "name": "Read Content Calendar",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Config').first().json;\nconst tz = cfg.timezone;\nconst now = DateTime.now().setZone(tz);\nconst maxLateHours = Number(cfg.maxLatenessHours ?? 48);\n\nconst ALIASES = { linkedin: 'linkedin', li: 'linkedin',\n                  facebook: 'facebook', fb: 'facebook',\n                  instagram: 'instagram', ig: 'instagram', insta: 'instagram' };\nconst LABELS = { linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram' };\nconst LIMITS = { linkedin: 3000, facebook: 63206, instagram: 2200 };\nconst ROUTES = { linkedin_text: 0, linkedin_image: 1,\n                 facebook_text: 2, facebook_image: 3,\n                 instagram: 4, invalid: 5 };\n\nfunction directMediaUrl(url) {\n  const m = url.match(/drive\\.google\\.com\\/(?:file\\/d\\/|open\\?id=|uc\\?(?:export=\\w+&)?id=)([\\w-]+)/);\n  return m ? `https://drive.google.com/uc?export=download&id=${m[1]}` : url;\n}\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const row = item.json;\n  const id = String(row['ID'] || '').trim();\n  if (!id) continue;\n\n  const approved = String(row['Approved']).trim().toUpperCase() === 'TRUE';\n  if (!approved) continue;\n\n  const when = DateTime.fromFormat(\n    String(row['Scheduled Time'] || '').trim(), 'yyyy-MM-dd HH:mm', { zone: tz });\n  if (when.isValid && when > now) continue;\n\n  const rawMedia = String(row['Media URL'] || '').trim();\n  const mediaUrl = rawMedia ? directMediaUrl(rawMedia) : '';\n  let mediaType = String(row['Media Type'] || '').trim().toLowerCase();\n  if (mediaType !== 'image' && mediaType !== 'video') {\n    mediaType = !rawMedia ? 'none' : /\\.(mp4|mov|m4v)(\\?|$)/i.test(rawMedia) ? 'video' : 'image';\n  }\n\n  const platforms = [...new Set(\n    String(row['Platforms'] || '').toLowerCase().split(',')\n      .map(p => ALIASES[p.trim()]).filter(Boolean)\n  )];\n\n  for (const platform of platforms) {\n    const label = LABELS[platform];\n    if (String(row[`${label} Status`] || '').trim()) continue;\n\n    const caption = String(row[`${label} Caption`] || row['Caption'] || '').trim();\n\n    let error = '';\n    if (!when.isValid)\n      error = 'Scheduled Time is missing or not in yyyy-MM-dd HH:mm format';\n    else if (now.diff(when, 'hours').hours > maxLateHours)\n      error = `More than ${maxLateHours}h late. Set a new time and clear the Status cell to retry`;\n    else if (!caption && mediaType === 'none')\n      error = 'Nothing to post: caption and media are both empty';\n    else if (caption.length > LIMITS[platform])\n      error = `Caption is ${caption.length} characters; ${label} allows ${LIMITS[platform]}`;\n    else if (platform === 'instagram' && mediaType === 'none')\n      error = 'Instagram needs an image or video URL';\n    else if (platform !== 'instagram' && mediaType === 'video')\n      error = `Video to ${label} isn't supported yet. Use an image or text only`;\n\n    let route;\n    if (error) route = ROUTES.invalid;\n    else if (platform === 'instagram') route = ROUTES.instagram;\n    else route = ROUTES[`${platform}_${mediaType === 'image' ? 'image' : 'text'}`];\n\n    out.push({\n      json: {\n        id, platform, platformLabel: label, caption, mediaUrl, mediaType,\n        scheduledFor: when.isValid ? when.toFormat('yyyy-MM-dd HH:mm') : '',\n        route, validationError: error,\n                        igPayload: (() => {\n          const m = rawMedia.match(/drive\\.google\\.com\\/(?:file\\/d\\/|open\\?id=|uc\\?(?:export=\\w+&)?id=)([\\w-]+)/);\n          const igUrl = m ? `https://lh3.googleusercontent.com/d/${m[1]}` : mediaUrl;\n          return mediaType === 'video'\n            ? { media_type: 'REELS', video_url: igUrl, caption }\n            : { image_url: igUrl, caption };\n        })(),\n      }\n    });\n  }\n}\n\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        96
+      ],
+      "id": "6fa0e4cc-334e-4625-88d5-d907beb56688",
+      "name": "Prepare Posts"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 6,
+        "output": "={{ $json.route }}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        848,
+        32
+      ],
+      "id": "518c04d8-5bbf-45a9-96bb-da0fb6d774b0",
+      "name": "Route by Platform"
+    },
+    {
+      "parameters": {
+        "person": "YOUR_LINKEDIN_PERSON_ID",
+        "text": "={{ $json.caption }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        1072,
+        -192
+      ],
+      "id": "3c85a593-3d0c-4bc4-b67d-97b4ecf90a88",
+      "name": "LinkedIn: Text Post",
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "",
+          "name": "LinkedIn account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $('Prepare Posts').item.json;\nconst tz = $('Config').first().json.timezone;\nconst r = $json;\n\n// Each platform replies differently, so build the link to match\nlet link = '';\nif (src.platform === 'linkedin') {\n  const urn = r.urn || r.id || '';\n  link = urn ? `https://www.linkedin.com/feed/update/${urn}` : '';\n} else if (src.platform === 'facebook') {\n  const postId = r.post_id || r.id || '';\n  link = postId ? `https://www.facebook.com/${postId}` : '';\n} else if (src.platform === 'instagram') {\n  link = r.id ? `Instagram media ${r.id}` : '';\n}\n\nreturn {\n  json: {\n    'ID': src.id,\n    [`${src.platformLabel} Status`]: 'Posted',\n    [`${src.platformLabel} Post`]: link,\n    'Last Updated': DateTime.now().setZone(tz).toFormat('yyyy-MM-dd HH:mm'),\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        -80
+      ],
+      "id": "f11172be-0f45-41db-ad4c-0b2cd59e57df",
+      "name": "Build Success Log"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetName }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scheduled Time",
+              "displayName": "Scheduled Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Platforms",
+              "displayName": "Platforms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Caption",
+              "displayName": "Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Caption",
+              "displayName": "LinkedIn Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Caption",
+              "displayName": "X Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Caption",
+              "displayName": "Instagram Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media URL",
+              "displayName": "Media URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media Type",
+              "displayName": "Media Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Approved",
+              "displayName": "Approved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Status",
+              "displayName": "LinkedIn Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Post",
+              "displayName": "LinkedIn Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Status",
+              "displayName": "X Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Post",
+              "displayName": "X Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Status",
+              "displayName": "Instagram Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Post",
+              "displayName": "Instagram Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Error",
+              "displayName": "Last Error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3440,
+        -112
+      ],
+      "id": "b6a909af-29f5-4109-bbdd-66443e92fcdb",
+      "name": "Mark as Posted",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// The job details, fetched from Prepare Posts\nconst src = $('Prepare Posts').item.json;\nconst tz = $('Config').first().json.timezone;\n\n// Work out the reason: an API error, or our own safety check\nconst e = $json.error;\nlet msg = '';\nif (e) msg = typeof e === 'string' ? e : (e.description || e.message || JSON.stringify(e));\nif (!msg && $json.status_code) msg = `Instagram processing ended with status ${$json.status_code}`;\nif (!msg) msg = src.validationError || 'Unknown error';\n\nreturn {\n  json: {\n    'ID': src.id,\n    [`${src.platformLabel} Status`]: 'Failed',\n    'Last Error': `${src.platformLabel}: ${String(msg).slice(0, 300)}`,\n    'Last Updated': DateTime.now().setZone(tz).toFormat('yyyy-MM-dd HH:mm'),\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        544
+      ],
+      "id": "9aad99d9-d6dc-4212-82d7-5f92880a8315",
+      "name": "Build Failure Log"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetId }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "={{ $('Config').first().json.sheetName }}",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "ID"
+          ],
+          "schema": [
+            {
+              "id": "ID",
+              "displayName": "ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Scheduled Time",
+              "displayName": "Scheduled Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Platforms",
+              "displayName": "Platforms",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Caption",
+              "displayName": "Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Caption",
+              "displayName": "LinkedIn Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Caption",
+              "displayName": "X Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Caption",
+              "displayName": "Instagram Caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media URL",
+              "displayName": "Media URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Media Type",
+              "displayName": "Media Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Approved",
+              "displayName": "Approved",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Status",
+              "displayName": "LinkedIn Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn Post",
+              "displayName": "LinkedIn Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Status",
+              "displayName": "X Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "X Post",
+              "displayName": "X Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Status",
+              "displayName": "Instagram Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Instagram Post",
+              "displayName": "Instagram Post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Updated",
+              "displayName": "Last Updated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Last Error",
+              "displayName": "Last Error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3440,
+        320
+      ],
+      "id": "0d8d75c6-7e32-4a9b-9270-b1323619294d",
+      "name": "Mark as Failed",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Config').first().json.telegramChatId }}",
+        "text": "=⚠️ Post failed: {{ $('Prepare Posts').item.json.platformLabel }}\n\nID: {{ $json.ID }}\nScheduled: {{ $('Prepare Posts').item.json.scheduledFor }}\nError: {{ $json['Last Error'] }}\n\nFix the row, clear the Status cell, and it will retry on the next run.",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3504,
+        544
+      ],
+      "id": "da38eddd-9602-4436-af86-c3f26a0365f2",
+      "name": "Telegram Alert",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "6b536c96-f9c6-41cc-b4d2-67e959b2fdbd",
+      "name": "LinkedIn: Download Image",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "postAs": "=person",
+        "person": "YOUR_LINKEDIN_PERSON_ID",
+        "text": "={{ $('Prepare Posts').item.json.caption }}",
+        "shareMediaCategory": "IMAGE",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        0
+      ],
+      "id": "15760d80-3f0b-464d-b301-1be333b2f3c0",
+      "name": "LinkedIn: Image Post",
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "",
+          "name": "LinkedIn account 2"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -48,
+        0
+      ],
+      "id": "55376f63-d809-44ec-8d68-800b0f25451d",
+      "name": "Every 15 Minutes"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v27.0/{{ $('Config').first().json.fbPageId }}/feed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "message",
+              "value": "={{ $json.caption }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1248,
+        336
+      ],
+      "id": "1da0715a-f155-47a1-90e1-2fc850fa354d",
+      "name": "Facebook: Text Post",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "",
+          "name": "Meta Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.mediaUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1136,
+        480
+      ],
+      "id": "c677c6a2-d350-409f-bc6b-ac4744eb3562",
+      "name": "Facebook: Download Image",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v27.0/{{ $('Config').first().json.fbPageId }}/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "source",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $('Prepare Posts').item.json.caption }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1392,
+        480
+      ],
+      "id": "e72b9684-a820-48bf-a18e-eb5ab0101809",
+      "name": "Facebook: Image Post",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "",
+          "name": "Meta Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v27.0/{{ $('Config').first().json.igUserId }}/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $json.igPayload.image_url }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $json.igPayload.caption }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1248,
+        960
+      ],
+      "id": "6ecfeb02-b1b5-4e3e-a787-affbf86196c1",
+      "name": "Instagram: Create Container",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "",
+          "name": "Meta Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1600,
+        896
+      ],
+      "id": "a100a371-3c02-4599-b68d-b8b7f8148d80",
+      "name": "Wait"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v27.0/{{ $json.id }}?fields=status_code,id",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        976
+      ],
+      "id": "4e1b19a3-1dbd-41c3-b6a8-bc63ee979897",
+      "name": "Instagram: Check Status",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "",
+          "name": "Meta Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.status_code === 'FINISHED' ? 0 : (['ERROR', 'EXPIRED'].includes($json.status_code) || $runIndex >= 20) ? 1 : 2 }}"
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        2336,
+        880
+      ],
+      "id": "c941fb4b-8c32-49c1-b70f-662c2c9bf8cc",
+      "name": "Instagram: Ready?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v27.0/{{ $('Config').first().json.igUserId }}/media_publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2768,
+        928
+      ],
+      "id": "1bd94799-5cc4-4155-8cca-2348ab653b20",
+      "name": "Instagram: Publish",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "",
+          "name": "Meta Page Token"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "content": "## 1 · Prep\nRuns every 15 minutes (or manually).\nReads the Google Sheet content calendar and keeps only posts that are **approved**, **due**, and **not already posted**, then checks each one is valid before any API call.",
+        "height": 500,
+        "width": 1032,
+        "color": 7
+      },
+      "name": "Note: Prep",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        -144
+      ],
+      "id": "3f21b8f4-db2d-460b-bc73-4a63f2d940ee"
+    },
+    {
+      "parameters": {
+        "content": "## 2 · LinkedIn\nText posts go straight out.\nImage posts: download the image, then upload it with the caption.",
+        "height": 444,
+        "width": 752,
+        "color": 5
+      },
+      "name": "Note: LinkedIn",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        -288
+      ],
+      "id": "60ddf247-e66b-4744-b914-fda8b7fd890d"
+    },
+    {
+      "parameters": {
+        "content": "## 3 · Facebook Page\nText posts go to the Page feed.\nImage posts: n8n downloads the image and uploads the file to the Page via the Graph API.",
+        "height": 412,
+        "width": 672,
+        "color": 4
+      },
+      "name": "Note: Facebook",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1024,
+        224
+      ],
+      "id": "67eff5b6-1073-44ae-b082-a1507a5cbcdb"
+    },
+    {
+      "parameters": {
+        "content": "## 4 · Instagram\n**Create** a media container → **Wait** 10s → **Check status** → loop until Meta has processed it (max ~20 checks) → **Publish**.\nSupports images and Reels.",
+        "height": 380,
+        "width": 1772,
+        "color": 3
+      },
+      "name": "Note: Instagram",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1168,
+        816
+      ],
+      "id": "ef24d315-2160-4574-a737-a0e89b52d00e"
+    },
+    {
+      "parameters": {
+        "content": "## 5 · Logging + alerts\n**Success:** writes `Posted` + the post link back to the sheet.\n**Failure:** writes `Failed` + the exact reason, and sends a Telegram alert.\nClear a Failed cell to retry. Never double-posts.",
+        "height": 1096,
+        "width": 664,
+        "color": 6
+      },
+      "name": "Note: Logging",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        -224
+      ],
+      "id": "279c5ae2-dde2-4d37-818b-46ecfade2dd3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Run Manually": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Read Content Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Content Calendar": {
+      "main": [
+        [
+          {
+            "node": "Prepare Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Posts": {
+      "main": [
+        [
+          {
+            "node": "Route by Platform",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Platform": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn: Text Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "LinkedIn: Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Facebook: Text Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Facebook: Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Instagram: Create Container",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn: Text Post": {
+      "main": [
+        [
+          {
+            "node": "Build Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Log": {
+      "main": [
+        [
+          {
+            "node": "Mark as Posted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Failure Log": {
+      "main": [
+        [
+          {
+            "node": "Mark as Failed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Alert": {
+      "main": [
+        []
+      ]
+    },
+    "LinkedIn: Download Image": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn: Image Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn: Image Post": {
+      "main": [
+        [
+          {
+            "node": "Build Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook: Text Post": {
+      "main": [
+        [
+          {
+            "node": "Build Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook: Download Image": {
+      "main": [
+        [
+          {
+            "node": "Facebook: Image Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook: Image Post": {
+      "main": [
+        [
+          {
+            "node": "Build Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Create Container": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Check Status": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Ready?": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Publish",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Publish": {
+      "main": [
+        [
+          {
+            "node": "Build Success Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Failure Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "gSLKZ3UJ5A51QXkr",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}

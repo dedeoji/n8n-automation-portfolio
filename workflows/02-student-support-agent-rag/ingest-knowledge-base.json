@@ -1,0 +1,191 @@
+{
+  "name": "Kestrel – Ingest Knowledge Base",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Upload Kestrel knowledge base",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Knowledge Base",
+              "fieldType": "file",
+              "acceptFileTypes": ".md",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "26e0fbf2-b37e-4274-86eb-899014afcd15",
+      "name": "Upload Kestrel knowledge base"
+    },
+    {
+      "parameters": {
+        "jsCode": "// read the uploaded markdown file\nconst item = $input.first();\nconst key = Object.keys(item.binary)[0];\nconst buffer = await this.helpers.getBinaryDataBuffer(0, key);\nconst text = buffer.toString('utf8');\n\n// split into one chunk per \"## \" section\nconst parts = text.split(/\\n(?=## )/);\nconst sections = [];\nfor (const part of parts) {\n  if (!part.startsWith('## ')) continue;\n  const title = part.split('\\n')[0].replace('## ', '').trim();\n  if (title.toLowerCase().startsWith('test questions')) continue;\n  sections.push({ json: { section: title, content: part.trim() } });\n}\nreturn sections;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "be30f68f-d2c1-4eff-881a-570795bbf766",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c1d57073-18d8-4617-8df6-220c0d6ef610",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        160
+      ],
+      "id": "a9d53333-d4a2-42c2-b766-3c8072567d8d",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonMode": "expressionData",
+        "jsonData": "={{ $json.content }}",
+        "textSplittingMode": "custom",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "section",
+                "value": "={{ $json.section }}"
+              }
+            ]
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1.1,
+      "position": [
+        576,
+        160
+      ],
+      "id": "d28f2758-23f9-459a-a7b7-12407a94891f",
+      "name": "Default Data Loader"
+    },
+    {
+      "parameters": {
+        "chunkSize": 3000,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        576,
+        304
+      ],
+      "id": "ede74535-36cc-484c-9876-cc75b2067b92",
+      "name": "Recursive Character Text Splitter"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Upload Kestrel knowledge base": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Default Data Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recursive Character Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Default Data Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

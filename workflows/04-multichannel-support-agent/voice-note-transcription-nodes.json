@@ -1,0 +1,140 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🎤 Voice notes\n**Has Voice Note?** → audio (base64 from the website) becomes a file → OpenAI transcribes it → **Merge Transcript** turns it into a normal message for *Normalize*.\n⚙️ Setup: OpenAI credential in **Transcribe Voice Note**.",
+        "height": 170,
+        "width": 560,
+        "color": 4
+      },
+      "id": "5b2a4c62-4acc-444f-94f2-2fcb3c0a94f5",
+      "name": "Note Voice",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        -640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1d8190a6-6dfb-4b4f-aea4-03f434c14b56",
+              "leftValue": "={{ $json.body.audio_base64 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "3897fac6-2f58-46fc-8f99-2ea5d811b034",
+      "name": "Has Voice Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        -420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "body.audio_base64",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "={{ 'voice.' + ((($json.body.audio_mime || '').includes('mp4')) ? 'mp4' : (($json.body.audio_mime || '').includes('ogg')) ? 'ogg' : 'webm') }}",
+          "mimeType": "={{ ($json.body.audio_mime || 'audio/webm').split(';')[0] }}"
+        }
+      },
+      "id": "e3704724-23b4-49e6-9f76-3a42094c4ada",
+      "name": "Audio to File",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "1d51357b-f185-4aa0-9312-10afaec1092b",
+      "name": "Transcribe Voice Note",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        460,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Voice note → text: put the transcript where a typed message would be, then continue as normal\nconst hook = $('Website Chat Webhook').first().json;\nconst text = String($json.text || '').trim();\nconst body = { ...hook.body, message: text ? `[Voice note] ${text}` : '', voice_note: true };\ndelete body.audio_base64;   // don't carry the audio further down the pipeline\nreturn [{ json: { headers: hook.headers, body } }];"
+      },
+      "id": "6499e1a7-1c0f-4f5c-abf1-0886dd0ed615",
+      "name": "Merge Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        -500
+      ]
+    }
+  ],
+  "connections": {
+    "Has Voice Note?": {
+      "main": [
+        [
+          {
+            "node": "Audio to File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Audio to File": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Voice Note": {
+      "main": [
+        [
+          {
+            "node": "Merge Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

@@ -1,0 +1,294 @@
+{
+  "name": "Kestrel – Chat Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "public": true,
+        "mode": "webhook",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        0
+      ],
+      "id": "0355cb0b-a6ea-431c-98d4-f6001892459e",
+      "name": "When chat message received"
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You are the Kestrel Coach Academy student support assistant. You are an AI.\n\nHOW TO ANSWER\n- Always search the kestrel_knowledge_base tool before answering.\n- Answer only from what the tool returns. Never invent dates, prices, policies or hour totals.\n- Give the full useful detail: for dates include days, times and application deadlines; for fees include the payment plan.\n- Use the conversation history to understand follow-up questions. If the student says \"that\" or \"it\", answer about the course or topic they just asked about.\n\nWHEN TO HAND OFF\nHand off refunds, cancellations, deferrals, failed payments, complaints, personal marks, personal hardship, crisis, or anything not in the knowledge base.\nWhen you hand off:\n1. Briefly share the relevant written policy, if there is one, so the student knows what to expect. Never promise or approve an outcome.\n2. If you don't have the student's full name and email yet, ask for both in one short message.\n3. Once you have them, call the handoff_to_support tool with:\n   - student_name, student_email\n   - topic: one or two words, e.g. \"Refund\", \"Deferral\", \"Complaint\"\n   - question: the student's request in their own words\n   - summary: one or two sentences for the support team\n   - urgent: true only for crisis, harm, bereavement or serious illness; otherwise false\n4. After the tool succeeds, say exactly: \"I've passed this to our student support team, and they'll reply by email within 1 working day.\"\nNever say you've passed it on unless the tool call succeeded. Never tell the student to email support themselves.\n\nCRISIS\nIf a student mentions crisis or harm, reply kindly, suggest Samaritans on 116 123 (free, 24 hours) or 999 in an emergency, and hand off as urgent.\n\nTONE\nWarm, clear and brief, in plain British English. Skip \"feel free to ask\" endings."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        224,
+        0
+      ],
+      "id": "37e91959-2d8e-43a7-ab2f-e15921dc26fd",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        96,
+        208
+      ],
+      "id": "f4648c2d-c7a2-4217-9be5-5c0212601dc8",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the Kestrel Coach Academy knowledge base for course details, dates, fees, policies, hours, accreditation, and portal help. Use this before answering any student question.",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        544,
+        112
+      ],
+      "id": "e833e71c-059b-427a-9b6e-b0b122defeaa",
+      "name": "kestrel_knowledge_base",
+      "credentials": {
+        "supabaseApi": {
+          "id": "",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        544,
+        240
+      ],
+      "id": "c60efc50-7cd7-4265-8983-68c309fab7bb",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Send the student's request to the Kestrel support team. Use this for refunds, cancellations, deferrals, failed payments, complaints, personal marks, hardship, crisis, or anything not in the knowledge base. Only call it after you have the student's name and email.",
+        "workflowId": {
+          "__rl": true,
+          "value": "Wb7jDucqdL8yPr0e",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Wb7jDucqdL8yPr0e",
+          "cachedResultName": "Kestrel – Handoff"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "urgent": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('urgent', ``, 'boolean') }}",
+            "student_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('student_name', ``, 'string') }}",
+            "student_email": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('student_email', ``, 'string') }}",
+            "topic": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('topic', ``, 'string') }}",
+            "question": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('question', ``, 'string') }}",
+            "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "student_name",
+              "displayName": "student_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "student_email",
+              "displayName": "student_email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "question",
+              "displayName": "question",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "urgent",
+              "displayName": "urgent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        400,
+        208
+      ],
+      "id": "228e6a4b-5f13-416d-9999-40c5356ea61a",
+      "name": "handoff to support"
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.4,
+      "position": [
+        224,
+        224
+      ],
+      "id": "e0e68b94-df9c-452f-8815-e1249e6c67e9",
+      "name": "Chat history (Supabase)",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "kestrel_knowledge_base": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "kestrel_knowledge_base",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "handoff to support": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat history (Supabase)": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

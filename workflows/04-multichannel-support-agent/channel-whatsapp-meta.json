@@ -1,0 +1,523 @@
+{
+  "name": "MCA · Test 04 · WhatsApp (Meta)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 💬 Test 04 · WhatsApp (Meta Cloud API)\nReal WhatsApp via Meta's free test number.\n1. **WhatsApp Trigger** — credential *WhatsApp OAuth* (App ID + App Secret)\n2. Voice notes → download from Meta → OpenAI transcribes\n3. Same Normalize → Duplicate check → **Send to Core** as the other channels\n4. **Send WhatsApp Reply** — credential *WhatsApp API* (access token + WABA ID); set your **Phone number ID** in the 2 send nodes\n⚠️ Meta allows ONE webhook per app: run it **published**, don't use 'Listen for test event'.",
+        "height": 260,
+        "width": 600,
+        "color": 4
+      },
+      "id": "b4877cee-ea4c-42f3-b107-ce265521cde0",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        96,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "id": "908466e8-03d0-4589-973a-d23bb8d16ae6",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        128,
+        368
+      ],
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "",
+          "name": "WhatsApp OAuth – Tillstone"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "434396b3-24aa-4745-a9b8-5e33637a2fb6",
+              "leftValue": "={{ ($json.messages?.[0]?.type ?? $json.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.type) === 'audio' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "110f1360-3908-4cca-babf-1057d492fffa",
+      "name": "Has Voice Note?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        352,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.facebook.com/v21.0/{{ ($json.messages?.[0] ?? $json.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]).audio.id }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "options": {}
+      },
+      "id": "0d4ba483-6c30-4db9-b2aa-fd78525c566a",
+      "name": "Get Voice Note URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        592,
+        208
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp API – Tillstone"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "35ef42e0-2f7f-44ee-997d-adf60af0bd9e",
+      "name": "Download Voice Note",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        208
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp API – Tillstone"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {
+          "language": "en"
+        }
+      },
+      "id": "6734f841-1006-4b0e-92b4-424bea1d628f",
+      "name": "Transcribe Voice Note",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1024,
+        208
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Voice note → text: rewrite the incoming WhatsApp event as a normal text message with the transcript\nconst evt = JSON.parse(JSON.stringify($('WhatsApp Trigger').first().json));\nconst v = evt.body?.entry?.[0]?.changes?.[0]?.value ?? evt.entry?.[0]?.changes?.[0]?.value ?? evt;\nconst text = String($json.text || '').trim();\nconst m = v.messages[0];\nv.messages[0] = { from: m.from, id: m.id, timestamp: m.timestamp, type: 'text',\n                  text: { body: text ? `[Voice note] ${text}` : '' } };\nreturn [{ json: evt }];"
+      },
+      "id": "6e6467af-dbc8-41d7-82ac-4aea88ae6d9f",
+      "name": "Merge Transcript",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalise Nigerian numbers to WhatsApp-style international format (e.g. 2348031234567)\nfunction normPhone(p) {\n  if (!p) return null;\n  let d = String(p).replace(/\\D/g, '');\n  if (d.startsWith('0') && d.length === 11) d = '234' + d.slice(1);\n  if (d.length === 10 && /^[789]/.test(d)) d = '234' + d;\n  return d || null;\n}\nfunction normEmail(e) {\n  if (!e) return null;\n  const s = String(e).trim().toLowerCase();\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(s) ? s : null;\n}\n// Our own unique ID for every message, whatever the channel: msg_<time>_<random>\nfunction newId() {\n  return 'msg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);\n}\n\n// WhatsApp (simulated Cloud API webhook OR n8n WhatsApp Trigger) -> Unified Message Schema (v2)\n// Works with both shapes, so swapping the Webhook for the real WhatsApp Trigger later needs no changes here.\nreturn $input.all().map(item => {\n  const j = item.json;\n  const v = j.body?.entry?.[0]?.changes?.[0]?.value\n         ?? j.entry?.[0]?.changes?.[0]?.value\n         ?? j;\n  const msg = v.messages?.[0];\n  const contact = v.contacts?.[0] ?? {};\n  if (!msg) {\n    // Delivery/read receipts arrive without a message - flag and let the IF node drop them\n    return { json: { schema_version: 2, channel: 'whatsapp', is_valid: false,\n      missing_fields: ['message'], note: 'status update, no customer message' } };\n  }\n  const phone = normPhone(msg.from || contact.wa_id);\n  let text = '';\n  if (msg.type === 'text') text = msg.text?.body ?? '';\n  else if (msg.type === 'button') text = msg.button?.text ?? '';\n  else if (msg.type === 'interactive') text = msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '';\n  else text = `[${msg.type} message]`;\n  text = String(text).trim();\n  const ts = Number(msg.timestamp);\n  return { json: {\n    schema_version: 2,\n    message_id: newId(),\n    channel_message_id: msg.id || null,\n    channel: 'whatsapp',\n    channel_user_id: phone,\n    thread_id: phone,\n    customer: { name: contact.profile?.name || null, email: null, phone },\n    subject: null,\n    message_text: text,\n    message_type: msg.type || 'text',\n    received_at: ts ? new Date(ts * 1000).toISOString() : new Date().toISOString(),\n    is_valid: text.length > 0 && !!phone,\n    missing_fields: [!text && 'message', !phone && 'phone'].filter(Boolean),\n    meta: { business_phone_id: v.metadata?.phone_number_id || null, simulated: !!j.body }\n  }};\n});"
+      },
+      "id": "dec66612-0a7e-458d-8868-c41f4009ea5a",
+      "name": "Normalize → Unified Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e5d36edc-8f48-44ca-bd2b-6015ea03d9f9",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "5b66ae11-4511-455f-9e20-1f932ef474ed",
+      "name": "Is Valid Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        368
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "b6d2fbaf-e473-4b12-8d7e-a84f53cc3821",
+      "name": "Ignore (status update / empty)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1904,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Phase 9 · Duplicate protection: the same channel message (same WhatsApp wamid / email Message-ID) is processed only once\nconst store = $getWorkflowStaticData('global');           // kept by n8n between production runs\nstore.seen = Array.isArray(store.seen) ? store.seen : [];\nreturn $input.all().map(item => {\n  const id = item.json.channel_message_id;\n  const is_duplicate = !!id && store.seen.includes(id);\n  if (id && !is_duplicate) {\n    store.seen.push(id);\n    if (store.seen.length > 1000) store.seen = store.seen.slice(-1000);   // remember the last 1,000\n  }\n  return { json: { ...item.json, is_duplicate } };\n});"
+      },
+      "id": "dac44b2e-961a-47f1-bf01-779ef7aa0b23",
+      "name": "Check Duplicate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "45eac90b-7947-48a1-96fa-9362d7ac7848",
+              "leftValue": "={{ $json.is_duplicate }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "4941f863-1b20-45c4-a7d8-f637dc243c5d",
+      "name": "Is Duplicate?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2128,
+        304
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "73fa146e-141c-45c6-ae7f-cf849f838da1",
+      "name": "Duplicate Ignored",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2352,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "v7ikl3w4X0wEBwKm",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/v7ikl3w4X0wEBwKm",
+          "cachedResultName": " Multi-channel AI Agent — MCA · Core"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "f23b74f8-380e-4782-85f5-cc7e693c0641",
+      "name": "Send to Core",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2352,
+        368
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Normalize → Unified Schema').item.json.customer.phone }}",
+        "textBody": "={{ $json.ai.reply }}",
+        "additionalFields": {}
+      },
+      "id": "d8f771aa-f163-4444-bce0-0c0c906f3eb0",
+      "name": "Send WhatsApp Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        2592,
+        304
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp API – Tillstone"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Normalize → Unified Schema').item.json.customer.phone }}",
+        "textBody": "Sorry, we're having a temporary technical problem. Your message has been received and a member of the Tillstone team will get back to you shortly.",
+        "additionalFields": {}
+      },
+      "id": "a6d527d9-029e-4166-a9a6-1eae89d7de0a",
+      "name": "Fallback WhatsApp Reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        2592,
+        512
+      ],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp API – Tillstone"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Has Voice Note?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Voice Note?": {
+      "main": [
+        [
+          {
+            "node": "Get Voice Note URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize → Unified Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Voice Note URL": {
+      "main": [
+        [
+          {
+            "node": "Download Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Voice Note": {
+      "main": [
+        [
+          {
+            "node": "Transcribe Voice Note",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe Voice Note": {
+      "main": [
+        [
+          {
+            "node": "Merge Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Transcript": {
+      "main": [
+        [
+          {
+            "node": "Normalize → Unified Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize → Unified Schema": {
+      "main": [
+        [
+          {
+            "node": "Is Valid Message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Valid Message?": {
+      "main": [
+        [
+          {
+            "node": "Check Duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignore (status update / empty)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Duplicate": {
+      "main": [
+        [
+          {
+            "node": "Is Duplicate?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Duplicate?": {
+      "main": [
+        [
+          {
+            "node": "Duplicate Ignored",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send to Core",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Core": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback WhatsApp Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "12ftgl2nh1KDCNfk",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
