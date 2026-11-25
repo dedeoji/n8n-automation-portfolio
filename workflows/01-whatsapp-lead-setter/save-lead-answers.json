@@ -1,0 +1,349 @@
+{
+  "name": "Second Wind – Save lead answers",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "phone"
+            },
+            {
+              "name": "first_name"
+            },
+            {
+              "name": "health_consent"
+            },
+            {
+              "name": "stage"
+            },
+            {
+              "name": "goal"
+            },
+            {
+              "name": "timing"
+            },
+            {
+              "name": "budget"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "88d9283d-fbcd-4ab8-b011-0d8993d6763c",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select * from leads where phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        224,
+        0
+      ],
+      "id": "66ed233a-e6cf-41a0-b1b4-d9fe25ecdfa4",
+      "name": "Get Lead",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge the new answers with what's already saved, then score (playbook rules)\nconst input = $('When Executed by Another Workflow').first().json;\nconst lead = $input.first().json;\n\nconst clean = v => (v === undefined || v === null || String(v).trim() === '' ? null : String(v).trim());\nconst pick = (v, allowed) => { v = clean(v); if (!v) return null; v = v.toLowerCase(); return allowed.includes(v) ? v : null; };\n\n// Health consent: only YES lets us keep health answers (UK GDPR)\nlet consent = clean(input.health_consent);\nconsent = consent === null ? lead.health_consent : /^(yes|y|true)$/i.test(consent);\n\nconst merged = {\n  first_name: clean(input.first_name) ?? lead.first_name,\n  health_consent: consent,\n  stage: consent === true ? (pick(input.stage, ['peri','post','not_sure','neither']) ?? lead.stage) : null,\n  goal: clean(input.goal) ?? lead.goal,\n  timing: pick(input.timing, ['this_month','1_3_months','just_looking']) ?? lead.timing,\n  budget: pick(input.budget, ['yes','payment_plan','not_now']) ?? lead.budget,\n};\n\nlet status = ['new'].includes(lead.status) ? 'qualifying' : lead.status;\nlet score = lead.score ?? null;\nlet next_step = 'continue';\nconst locked = ['handoff', 'booked'].includes(lead.status);\nconst complete = merged.stage && merged.goal && merged.timing && merged.budget;\n\nif (!locked && merged.health_consent === false) {\n  next_step = 'let_her_choose';\n} else if (!locked && merged.health_consent === true && complete) {\n  score = { peri: 2, post: 2, not_sure: 1, neither: 0 }[merged.stage]\n        + { this_month: 3, '1_3_months': 2, just_looking: 0 }[merged.timing]\n        + { yes: 3, payment_plan: 2, not_now: 0 }[merged.budget]\n        + (merged.goal ? 1 : 0);\n  if (merged.stage === 'neither') status = 'not_now';        // override 2\n  else if (merged.budget === 'not_now') status = 'nurture';  // override 1\n  else if (score >= 6) status = 'qualified';\n  else if (score >= 3) status = 'nurture';\n  else status = 'not_now';\n  next_step = { qualified: 'send_booking_link', nurture: 'invite_to_masterclass', not_now: 'share_facebook_group' }[status];\n}\n\nconst consent_at = merged.health_consent !== null && !lead.consent_at ? new Date().toISOString() : lead.consent_at;\nreturn [{ json: { phone: input.phone, ...merged, consent_at, score, status, next_step } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "198b55f4-1948-45c0-8714-7d1f276c5ccf",
+      "name": "Merge and score"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "leads",
+          "mode": "list",
+          "cachedResultName": "leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "health_consent": "={{ $json.health_consent }}",
+            "stage": "={{ $json.stage }}",
+            "phone": "={{ $json.phone }}",
+            "first_name": "={{ $json.first_name }}",
+            "goal": "={{ $json.goal }}",
+            "timing": "={{ $json.timing }}",
+            "budget": "={{ $json.budget }}",
+            "score": "={{ $json.score }}",
+            "status": "={{ $json.status }}",
+            "consent_at": "={{ $json.consent_at }}"
+          },
+          "matchingColumns": [
+            "phone"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "goal",
+              "displayName": "goal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "timing",
+              "displayName": "timing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "health_consent",
+              "displayName": "health_consent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "consent_at",
+              "displayName": "consent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opted_out",
+              "displayName": "opted_out",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "followup_sent_at",
+              "displayName": "followup_sent_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "booked_at",
+              "displayName": "booked_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "last_message_at",
+              "displayName": "last_message_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        672,
+        0
+      ],
+      "id": "7aa80cd0-a001-4852-82b8-5f79e2486e9e",
+      "name": "Save lead",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('Merge and score').first().json;\nreturn [{ json: { saved: true, first_name: r.first_name, status: r.status, score: r.score, next_step: r.next_step } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "e6d726f9-f55f-4635-9b4c-b747fd109b6c",
+      "name": "Answer the agent"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Lead": {
+      "main": [
+        [
+          {
+            "node": "Merge and score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge and score": {
+      "main": [
+        [
+          {
+            "node": "Save lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save lead": {
+      "main": [
+        [
+          {
+            "node": "Answer the agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

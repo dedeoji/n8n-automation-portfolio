@@ -1,0 +1,66 @@
+{
+  "name": "Second Wind – 12-month clean-up",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 3
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b081ee32-895b-470b-9ecb-d21c5dd48fca",
+      "name": "Every night"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with old as (\n  select phone from leads\n  where last_message_at < now() - interval '12 months'\n),\nchats as (\n  delete from n8n_chat_histories\n  where session_id in (select phone from old)\n)\ndelete from leads\nwhere phone in (select phone from old)\nreturning phone;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        224,
+        0
+      ],
+      "id": "279220d1-d1a7-475c-bed5-95da8064e0ef",
+      "name": "Delete old leads",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every night": {
+      "main": [
+        [
+          {
+            "node": "Delete old leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

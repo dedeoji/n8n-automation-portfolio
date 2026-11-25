@@ -1,0 +1,146 @@
+{
+  "name": "Second Wind – Gentle nudge",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e18eaca5-6673-4b88-8ae1-56e5daf543cd",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update leads\nset followup_sent_at = now()\nwhere opted_out = false\n  and followup_sent_at is null\n  and last_message_at > now() - interval '23 hours'\n  and (\n    (status = 'qualifying' and last_message_at < now() - interval '3 hours')\n    or (status = 'qualified' and last_message_at < now() - interval '20 hours')\n  )\n  and extract(hour from now() at time zone 'Europe/London') between 8 and 20\nreturning phone, first_name, status;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        224,
+        0
+      ],
+      "id": "dcfc765f-1754-46df-bc99-8fdbe39d8b17",
+      "name": "Find quiet leads",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.phone }}",
+        "textBody": "={{ $json.status === 'qualified'\n  ? 'Hi' + ($json.first_name ? ' ' + $json.first_name : '') + ', just a gentle nudge in case Claire\\'s diary link got buried: https://cal.com/second-wind-demo-kd2huy/free-call No pressure at all 😊 Reply STOP if you\\'d rather not hear from me.'\n  : 'Hi' + ($json.first_name ? ' ' + $json.first_name : '') + ', just checking in 😊 No rush at all. Whenever you\\'re ready, we can pick up where we left off. Reply STOP if you\\'d rather not hear from me.' }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        0
+      ],
+      "id": "f004af9b-bac3-4c01-adc4-4e124a92bf7d",
+      "name": "Send nudge",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "03f5a0d1-09ab-47f4-bd4c-37f5d60483c1",
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        432,
+        0
+      ],
+      "id": "2727e1be-3c7e-46f1-8acd-4a701096df8c",
+      "name": "Has a lead?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Find quiet leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find quiet leads": {
+      "main": [
+        [
+          {
+            "node": "Has a lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has a lead?": {
+      "main": [
+        [
+          {
+            "node": "Send nudge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
