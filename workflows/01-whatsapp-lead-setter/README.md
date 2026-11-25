@@ -52,6 +52,8 @@ The inbox and the lead setter are separate workflows on purpose: the WhatsApp we
 | `gentle-nudge.json` | Every 30 minutes: one follow-up to quiet leads, with the 24-hour window and UK daytime rules in SQL |
 | `12-month-clean-up.json` | Every night: deletes leads and chat history older than 12 months |
 
+**Import order:** import `save-lead-answers.json` and `handoff-to-claire.json` first, then `lead-setter.json`, then `inbox.json`. After importing, reselect the sub-workflows in the lead setter's two tool nodes and in the inbox's "Call Lead Setter" node, because n8n gives each imported workflow a new ID. Publish the sub-workflows before testing.
+
 The Meta helper that subscribes the WhatsApp Business Account to the app is in [`../04-multichannel-support-agent/meta-subscribe-app.json`](../04-multichannel-support-agent/meta-subscribe-app.json).
 
 ## Database (Supabase / Postgres)

@@ -1,0 +1,851 @@
+{
+  "name": "Second Wind – WhatsApp Lead Setter",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Turn Meta's WhatsApp event into a simple message\nreturn $input.all().map(item => {\n  const v = item.json.body?.entry?.[0]?.changes?.[0]?.value\n         ?? item.json.entry?.[0]?.changes?.[0]?.value\n         ?? item.json;\n  const msg = v.messages?.[0];\n  const contact = v.contacts?.[0] ?? {};\n  if (!msg) return { json: { is_message: false } }; // delivery/read receipts\n\n  let text = '';\n  if (msg.type === 'text') text = msg.text?.body ?? '';\n  else if (msg.type === 'button') text = msg.button?.text ?? '';\n  else if (msg.type === 'interactive')\n    text = msg.interactive?.button_reply?.title ?? msg.interactive?.list_reply?.title ?? '';\n  else text = `[${msg.type} message]`;\n\n  return { json: {\n    is_message: true,\n    phone: String(msg.from || contact.wa_id || '').replace(/\\D/g, ''),\n    text: String(text).trim(),\n    wa_message_id: msg.id,\n    received_at: new Date(Number(msg.timestamp) * 1000).toISOString()\n  }};\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        368
+      ],
+      "id": "8929e97a-ed24-40d1-a5f7-0dcbe6d643c9",
+      "name": "Read message"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "3815b910-c45c-4fea-8a75-7ae9d85c273e",
+              "leftValue": "={{ $json.is_message }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        416,
+        368
+      ],
+      "id": "2e32324a-cda6-40cb-82ac-640139930348",
+      "name": "Is a real message?"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Read message').first().json.text }}",
+        "options": {
+          "systemMessage": "You are Claire's assistant at Second Wind Coaching, a UK online 1:1 coaching business for women in perimenopause and menopause, run by Claire Bennett. You chat with new leads on WhatsApp. You are an AI, and you always say so if asked.\n\n## Tone\nWarm, short, down-to-earth, like a friend who happens to be a coach. Plain British English. 1–3 sentences per message. ONE question per message, never a list. Use her first name once you know it. At most one emoji. Acknowledge what she shares before the next question. Never pushy; no fake urgency.\nPlain text only. No markdown, no bold, no [text](link) formatting. Write links as plain URLs, e.g. https://cal.com/second-wind-demo-kd2huy/free-call\n\n## Welcome\nThe welcome message has already been sent automatically. It said you're Claire's AI assistant, shared the privacy link, and asked for her first name. Never send it again. If her first name is unknown, treat her message as her answer when it looks like a name.\n\n## The conversation, in order (skip anything already answered)\n1. Her first name.\n2. Health consent, asked exactly: \"A couple of my next questions touch on your health, like where you are with menopause. Is it okay for Claire to keep your answers so she can see if Strong Again is right for you? You can ask us to delete them any time. Just reply YES or NO.\"\n3. \"Where are you at the moment: perimenopause, menopause, or not sure?\" (only if she said YES)\n4. \"What's the main thing you'd love to change?\"\n5. \"How soon would you like to get started?\"\n6. Price, always stated before asking: \"Strong Again is £1,497, or 4 monthly payments of £397. Is that something you could invest in right now?\"\nIf she asks her own question, answer it from the facts below, then return to the next question.\n\n## Saving answers (always)\nEvery time she gives one or more answers, call save_lead_answers with ONLY the answers she just gave, and leave the rest empty. Use these exact values:\n- first_name: her first name\n- health_consent: yes or no\n- stage: peri, post, not_sure, or neither (neither = not in perimenopause or menopause)\n- goal: her goal in a short phrase, in her words\n- timing: this_month, 1_3_months, or just_looking\n- budget: yes, payment_plan (she'd use the monthly plan or needs it spread out), or not_now\nNever guess a value she hasn't given.\n\n## Next step\nFollow the tool's next_step exactly. You never decide fit yourself.\n- continue: ask the next unanswered question.\n- send_booking_link: \"Brilliant, [name]! From what you've told me, Strong Again sounds like a really good fit. Here's Claire's diary for a free, relaxed 20-minute chat: https://cal.com/second-wind-demo-kd2huy/free-call When it asks for your WhatsApp number, use this one and I'll confirm your booking here.\"\n- invite_to_masterclass: warmly invite her to the free masterclass \"Strong After 40\", every Wednesday at 7:30 pm UK time: secondwindcoaching.co.uk/masterclass. No pressure, and she can message anytime.\n- share_facebook_group: thank her warmly and share the free Facebook group \"Second Wind Women\": facebook.com/groups/secondwindwomen\n- let_her_choose: she said NO to health questions, so don't ask any. Offer both the free 20-minute call (https://cal.com/second-wind-demo-kd2huy/free-call) and the free Wednesday masterclass (secondwindcoaching.co.uk/masterclass), and let her choose.\n\n## Facts you may use (never invent anything else)\n- Strong Again: 16 weeks of 1:1 online coaching. Personalised strength plan in an app (3 sessions a week, 30–45 minutes, home or gym). Flexible eating guidance around family meals, no crash diets. Weekly written check-in, 1:1 video call every 4 weeks, WhatsApp support from Claire on weekdays 9 am–5 pm.\n- Price: £1,497 in full, or 4 monthly payments of £397. New clients start on the first Monday of each month.\n- Guarantee: follow the plan and do every weekly check-in for 4 weeks; if not happy, full refund.\n- Fully online, anywhere in the UK. About 3 hours a week.\n- Free 20-minute call with Claire, relaxed, no pressure to join.\n- She's welcome to bring her partner or a friend to the free call.\n- Free masterclass \"Strong After 40\", Zoom, every Wednesday 7:30 pm UK time: secondwindcoaching.co.uk/masterclass\n- Free Facebook group \"Second Wind Women\": facebook.com/groups/secondwindwomen\n- Claire is a coach, not a doctor. Never give medical advice or comment on HRT, medication, symptoms, or conditions.\n- Never promise a set amount of weight loss.\n\n## Handing off to Claire\nIf she asks a medical question, mentions an eating disorder or a difficult relationship with food or her body, shares something emotionally heavy, asks for Claire or a real person, is an existing client, complains, asks for a refund, or asks something the facts don't cover:\n1. Call handoff_to_claire with a short reason (e.g., \"Medical question\", \"Wants to speak to Claire\"), a one or two-sentence summary for Claire, and urgent = true only for crisis, harm, or bereavement.\n2. Only after the tool succeeds, reply with exactly: \"Thank you for telling me, [name]. That's one for Claire herself, so I've passed your message to her. She'll reply to you here within 1 working day.\" Add nothing else: no information, reassurance or opinion about the topic, and no further questions.\n3. Stop asking qualifying questions.\nIf she says she is in danger or might hurt herself, also suggest Samaritans on 116 123 (free, 24 hours) or 999 in an emergency, and mark the handoff urgent.\nIf the status below is handoff, Claire is already dealing with it: don't ask questions; reply briefly that Claire will be in touch here soon.\n\n## After she books\nIf the status below is booked, she has ALREADY booked her free call, and Claire's team has confirmed it here on WhatsApp. Never ask her to book, never ask her to tell you when she books, and never send the booking link again. Don't ask qualifying questions. Answer her question from the facts in 1–2 sentences. If she needs to change the time, tell her to use the reschedule link in her confirmation email.\n\n## Current lead record\nStatus: {{ $('Save or update lead').first().json.status }}\nFirst name: {{ $('Save or update lead').first().json.first_name || 'unknown' }}\nHealth consent: {{ $('Save or update lead').first().json.health_consent ?? 'not asked' }}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1664,
+        624
+      ],
+      "id": "882cb2ae-07c5-4cee-a904-a27ce881b23d",
+      "name": "Lead setter"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.2
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1552,
+        848
+      ],
+      "id": "a28b51c8-ed78-474b-8d9a-cf5f31426413",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Read message').first().json.phone }}",
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.4,
+      "position": [
+        1680,
+        848
+      ],
+      "id": "a5fb6a4a-1430-4444-84f1-9e6e40d5c7d0",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into leads (phone, last_message_at)\nvalues ($1, now())\non conflict (phone) do update set last_message_at = now(), opted_out = false\nreturning *, (xmax = 0) as is_new;",
+        "options": {
+          "queryReplacement": "={{ $json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        640,
+        128
+      ],
+      "id": "e3ddb55b-0afc-456c-be83-4964774e4565",
+      "name": "Save or update lead",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read message').first().json.phone }}",
+        "textBody": "={{ $json.reply }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        2576,
+        624
+      ],
+      "id": "b2b7fb72-31f0-44a5-93db-864ed681426b",
+      "name": "Send reply",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -32,
+        368
+      ],
+      "id": "5bcb1eef-a08a-4f91-9556-73c773fe25cf",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "30d23788-2786-4936-9f18-df050088d731",
+              "leftValue": "={{ $json.is_new }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1312,
+        368
+      ],
+      "id": "ef2bb210-0211-41a9-89de-27112b6d490b",
+      "name": "Is new lead?"
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read message').first().json.phone }}",
+        "textBody": "Hi, thanks so much for getting in touch! 😊 I'm Claire's assistant at Second Wind Coaching (I'm an AI, and Claire reads every conversation). Here's how we look after your details: secondwindcoaching.co.uk/privacy. Can I ask your first name?",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1728,
+        320
+      ],
+      "id": "c9a33200-4664-4089-acd9-77133c08377c",
+      "name": "Send welcome",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update leads set status = 'qualifying' where phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $('Read message').first().json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2128,
+        320
+      ],
+      "id": "9b2bcd1b-40ea-4986-88d7-eb1dcee1e443",
+      "name": "Mark as qualifying",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "description": "Save the answers the lead has just given, and get the next step. Call it every time she gives one or more answers.",
+        "workflowId": {
+          "__rl": true,
+          "value": "kjJoxw6yXHyY8bFh",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/kjJoxw6yXHyY8bFh",
+          "cachedResultName": "Second Wind – Save lead answers"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "phone": "={{ $('Read message').first().json.phone }}",
+            "first_name": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('first_name', ``, 'string') }}",
+            "health_consent": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('health_consent', ``, 'string') }}",
+            "stage": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('stage', ``, 'string') }}",
+            "goal": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('goal', ``, 'string') }}",
+            "timing": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('timing', ``, 'string') }}",
+            "budget": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('budget', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "health_consent",
+              "displayName": "health_consent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "stage",
+              "displayName": "stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "goal",
+              "displayName": "goal",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "timing",
+              "displayName": "timing",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "budget",
+              "displayName": "budget",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1808,
+        848
+      ],
+      "id": "a70f161f-aaca-4769-859d-f633151cbc05",
+      "name": "save_lead_answers"
+    },
+    {
+      "parameters": {
+        "description": "Pass the conversation to Claire. Use for medical questions, eating or body-image struggles, emotional distress or crisis, requests to speak to Claire or a person, existing clients, complaints, refunds, or anything the facts don't cover.",
+        "workflowId": {
+          "__rl": true,
+          "value": "ZC45cny4PuodyvXz",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/ZC45cny4PuodyvXz",
+          "cachedResultName": "Second Wind – Handoff to Claire"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "urgent": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('urgent', ``, 'boolean') }}",
+            "phone": "={{ $('Read message').first().json.phone }}",
+            "reason": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('reason', ``, 'string') }}",
+            "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('summary', ``, 'string') }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "summary",
+              "displayName": "summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "urgent",
+              "displayName": "urgent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1936,
+        848
+      ],
+      "id": "fc38d870-6ccc-4bf7-9e8a-91f7ab8dd104",
+      "name": "handoff_to_claire"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select status, first_name from leads where phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $('Read message').first().json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        2128,
+        624
+      ],
+      "id": "10fba23a-29a3-4e91-9844-1c2ce80a5bd5",
+      "name": "Check status",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ai = $('Lead setter').first().json.output;\nconst before = $('Save or update lead').first().json.status;\nconst lead = $input.first().json;\nconst name = lead.first_name ? `, ${lead.first_name}` : '';\n\n// Already booked: remove any sentence asking her to book or containing the booking link\nif (lead.status === 'booked') {\n  const bookingNudge = /[^.!?]*(\\bwhen you book\\b|\\bonce you('ve| have)? booked\\b|\\bbook (a|your) (call|slot|time)\\b|cal\\.com\\S*)[^.!?]*[.!?]?\\s*/gi;\n  let reply = ai.replace(bookingNudge, '').trim();\n  if (!reply) reply = `You're all booked in${name} 😊 Claire's looking forward to chatting with you.`;\n  return [{ json: { reply } }];\n}\n\nif (lead.status !== 'handoff') return [{ json: { reply: ai } }];\nif (/samaritans|116 123|\\b999\\b/i.test(ai)) return [{ json: { reply: ai } }];\n\nconst reply = before === 'handoff'\n  ? `Thanks${name}. Claire has your messages and will reply to you here within 1 working day.`\n  : `Thank you for telling me${name}. That's one for Claire herself, so I've passed your message to her. She'll reply to you here within 1 working day.`;\nreturn [{ json: { reply } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        624
+      ],
+      "id": "633bf6b6-38d4-4ceb-9b31-6771a9a036d7",
+      "name": "Final reply"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Spot GDPR commands before the AI sees the message\nconst text = $('Read message').first().json.text.toLowerCase().trim();\nlet command = 'none';\nif (/\\bdelete (all )?(my )?(data|details|information)\\b/.test(text)) command = 'delete';\nelse if (/^(stop|unsubscribe|opt out|not interested)[.!]*$/.test(text)) command = 'stop';\nreturn [{ json: { ...$input.first().json, command } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        128
+      ],
+      "id": "a56c43dc-f12c-4d4b-95f7-4df2c164b972",
+      "name": "Check command"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "6fa24e64-6643-4f12-a64b-a753a31fb5e3"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "28564b16-a406-4c26-a264-9ab2d08c8261",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1088,
+        112
+      ],
+      "id": "cb8c4f8f-3e31-4802-a194-28068f38f334",
+      "name": "Which command?"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with c as (delete from n8n_chat_histories where session_id = $1)\ndelete from leads where phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $('Read message').first().json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1312,
+        -64
+      ],
+      "id": "65e9f330-898f-477e-ad16-6660068d0e19",
+      "name": "Delete her data",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read message').first().json.phone }}",
+        "textBody": "Done. I've deleted your details and our conversation from Second Wind's records. If you ever message again, we'll start fresh. Take care 😊",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1728,
+        -64
+      ],
+      "id": "fb91246e-2e5f-416f-8888-d3e1e0bd13da",
+      "name": "Confirm deletion",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update leads set opted_out = true, status = 'not_now' where phone = $1;",
+        "options": {
+          "queryReplacement": "={{ $('Read message').first().json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        1312,
+        128
+      ],
+      "id": "d2a988a4-50d0-4c63-96a8-d11f46f1a550",
+      "name": "Opt out",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read message').first().json.phone }}",
+        "textBody": "No problem at all; I won't message you again. If you ever want to chat, just say hi. Take care 😊",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        1728,
+        128
+      ],
+      "id": "77326f64-4fb8-4f63-af4b-a909a69cb807",
+      "name": "Confirm stop",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Read message": {
+      "main": [
+        [
+          {
+            "node": "Is a real message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is a real message?": {
+      "main": [
+        [
+          {
+            "node": "Save or update lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Lead setter",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Lead setter",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead setter": {
+      "main": [
+        [
+          {
+            "node": "Check status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save or update lead": {
+      "main": [
+        [
+          {
+            "node": "Check command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Read message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is new lead?": {
+      "main": [
+        [
+          {
+            "node": "Send welcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lead setter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send welcome": {
+      "main": [
+        [
+          {
+            "node": "Mark as qualifying",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save_lead_answers": {
+      "ai_tool": [
+        [
+          {
+            "node": "Lead setter",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "handoff_to_claire": {
+      "ai_tool": [
+        [
+          {
+            "node": "Lead setter",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check status": {
+      "main": [
+        [
+          {
+            "node": "Final reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final reply": {
+      "main": [
+        [
+          {
+            "node": "Send reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check command": {
+      "main": [
+        [
+          {
+            "node": "Which command?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Which command?": {
+      "main": [
+        [
+          {
+            "node": "Delete her data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Opt out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is new lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete her data": {
+      "main": [
+        [
+          {
+            "node": "Confirm deletion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opt out": {
+      "main": [
+        [
+          {
+            "node": "Confirm stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

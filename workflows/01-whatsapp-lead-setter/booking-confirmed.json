@@ -1,0 +1,167 @@
+{
+  "name": "Second Wind – Booking confirmed",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "second-wind-booking",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4606bf19-78b5-4214-9aa9-f7aa33214b1c",
+      "name": "Cal.com booking"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst p = body.payload ?? {};\nif (body.triggerEvent !== 'BOOKING_CREATED') return [];\n\nconst wa = p.responses?.whatsapp;\nconst raw = typeof wa === 'object' && wa !== null ? (wa.value ?? '') : (wa ?? '');\nconst phone = String(raw).replace(/\\D/g, '');\nif (!phone) return [];\n\nconst when = new Date(p.startTime).toLocaleString('en-GB', {\n  timeZone: 'Europe/London',\n  weekday: 'long', day: 'numeric', month: 'long',\n  hour: 'numeric', minute: '2-digit', hour12: true\n});\n\nreturn [{ json: { phone, when, booking_id: p.uid ?? null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "648274fa-ba8b-4f56-8e9f-a1c897c9577d",
+      "name": "Read booking"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update leads\nset status = 'booked', booked_at = now()\nwhere phone = $1 and opted_out = false\nreturning phone, first_name;",
+        "options": {
+          "queryReplacement": "={{ $json.phone }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.8,
+      "position": [
+        448,
+        0
+      ],
+      "id": "9b430b4a-1198-4f17-a520-c95132cc1d77",
+      "name": "Mark as booked",
+      "credentials": {
+        "postgres": {
+          "id": "",
+          "name": "Postgres – Second Wind"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Read booking').first().json.phone }}",
+        "textBody": "=Lovely, you're booked in{{ $json.first_name ? ', ' + $json.first_name : '' }}! 🎉 Your free call with Claire is on {{ $('Read booking').first().json.when }} (UK time). The Google Meet link is in your confirmation email. Grab a cuppa and we'll see you then 😊",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1.1,
+      "position": [
+        832,
+        0
+      ],
+      "id": "3e560ad5-ab67-4aaa-9e45-b52e248e1a4c",
+      "name": "Confirm booking",
+      "credentials": {
+        "whatsAppApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (send)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "9f9cf062-0816-4f14-8e26-00f29396ac97",
+              "leftValue": "={{ $json.phone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.4,
+      "position": [
+        640,
+        0
+      ],
+      "id": "54d72d0c-b139-402f-9868-4f825578b4e7",
+      "name": "Is our lead?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Cal.com booking": {
+      "main": [
+        [
+          {
+            "node": "Read booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read booking": {
+      "main": [
+        [
+          {
+            "node": "Mark as booked",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as booked": {
+      "main": [
+        [
+          {
+            "node": "Is our lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is our lead?": {
+      "main": [
+        [
+          {
+            "node": "Confirm booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}

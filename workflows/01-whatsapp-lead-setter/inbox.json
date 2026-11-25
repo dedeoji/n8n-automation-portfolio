@@ -1,0 +1,79 @@
+{
+  "name": "Second Wind – WhatsApp Inbox",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ],
+        "options": {}
+      },
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "2e80ddb0-1c7b-4800-ae6e-462c6cad70ec",
+      "name": "WhatsApp – Second Wind (receive)",
+      "credentials": {
+        "whatsAppTriggerApi": {
+          "id": "",
+          "name": "WhatsApp – Second Wind (receive)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Dfolz1e6FQ3XCuAF",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/Dfolz1e6FQ3XCuAF",
+          "cachedResultName": "Second Wind – WhatsApp Lead Setter"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "e61e1e93-393d-4658-b08e-2a67c23d1568",
+      "name": "Call 'Second Wind – WhatsApp Lead Setter'"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WhatsApp – Second Wind (receive)": {
+      "main": [
+        [
+          {
+            "node": "Call 'Second Wind – WhatsApp Lead Setter'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
